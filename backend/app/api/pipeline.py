@@ -9,7 +9,7 @@ from app.services.ais_loader import load_and_filter
 router = APIRouter()
 
 # Path to the AIS data file (synthetic fallback, per Person B hand-off)
-_AIS_CSV = Path(__file__).resolve().parent.parent.parent / "data" / "uploads" / "ais_2023_11_15_synthetic.csv"
+_AIS_CSV = Path(__file__).resolve().parent.parent.parent / "data" / "synthetic" / "ais" / "tracks.csv"
 
 
 @router.post("/pipeline/run")
@@ -40,7 +40,7 @@ async def get_shortlist(run_id: str) -> Shortlist:
     if not _AIS_CSV.exists():
         raise HTTPException(
             status_code=503,
-            detail=f"AIS data not found at {_AIS_CSV}. Drop ais_2023_11_15_synthetic.csv into backend/data/uploads/.",
+            detail=f"AIS data not found at {_AIS_CSV}. Run backend/scripts/generate_all.py to generate it.",
         )
 
     result = load_and_filter(_AIS_CSV)

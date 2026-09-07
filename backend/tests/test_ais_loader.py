@@ -2,7 +2,7 @@
 Tests for AIS loader — Stage 2/3.
 
 Runs against the synthetic AIS fixture at:
-  backend/data/uploads/ais_2023_11_15_synthetic.csv
+  backend/data/synthetic/ais/tracks.csv
 
 Run with: python -m pytest backend/tests/test_ais_loader.py -v
 """
@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.services.ais_loader import load_and_filter, DEFAULT_BBOX, DEFAULT_DATE_START, DEFAULT_DATE_END, SPILL_DETECTION_TIME, SPILL_ORIGIN_LAT, SPILL_ORIGIN_LON
 
-FIXTURE = Path(__file__).resolve().parent.parent / "data" / "uploads" / "ais_2023_11_15_synthetic.csv"
+FIXTURE = Path(__file__).resolve().parent.parent / "data" / "synthetic" / "ais" / "tracks.csv"
 
 
 def test_load_returns_success():

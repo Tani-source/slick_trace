@@ -53,14 +53,14 @@ RELEVANT_VESSEL_TYPES: set[int] = {
 }
 
 # Default demo region (B1 decision) and time window
-DEFAULT_BBOX = (28.0, -91.0, 30.0, -88.0)  # (min_lat, min_lon, max_lat, max_lon)
-DEFAULT_DATE_START = datetime(2023, 11, 15, tzinfo=timezone.utc)
-DEFAULT_DATE_END = datetime(2023, 11, 17, 23, 59, 59, tzinfo=timezone.utc)
+DEFAULT_BBOX = (28.50, -90.00, 29.00, -89.00)  # (min_lat, min_lon, max_lat, max_lon)
+DEFAULT_DATE_START = datetime(2024, 9, 13, tzinfo=timezone.utc)
+DEFAULT_DATE_END = datetime(2024, 9, 16, tzinfo=timezone.utc)
 
-# Spill origin — Main Pass 69 (backtest reference only, no forensic conviction)
-SPILL_ORIGIN_LAT = 29.297  # 29° 17.83' N
-SPILL_ORIGIN_LON = -88.718  # 88° 43.08' W
-SPILL_DETECTION_TIME = datetime(2023, 11, 16, 12, 0, 0, tzinfo=timezone.utc)
+# Spill origin — (Synthetic scenario)
+SPILL_ORIGIN_LAT = 28.80
+SPILL_ORIGIN_LON = -89.62
+SPILL_DETECTION_TIME = datetime(2024, 9, 14, 18, 0, 0, tzinfo=timezone.utc)
 
 # Release window: how many hours *before* detection to search for candidate positions
 RELEASE_WINDOW_HOURS = 36
