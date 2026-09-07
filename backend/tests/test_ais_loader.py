@@ -63,6 +63,44 @@ def test_missing_file_returns_failed():
     assert result["stage"] == "ais_ingestion"
 
 
+def test_mmsi_deduplication_regression(tmp_path):
+    # Multiple points for the same MMSI must yield exactly 1 candidate
+    csv_file = tmp_path / "tracks_dupe.csv"
+    csv_file.write_text(
+        "MMSI,BaseDateTime,LAT,LON,SOG,VesselName,VesselType,Draft\n"
+        "111111111,2026-09-02T01:00:00Z,28.5,-90.0,12.0,TANKER_A,80,10.0\n"
+        "111111111,2026-09-02T01:30:00Z,28.6,-89.9,12.0,TANKER_A,80,10.0\n"
+        "111111111,2026-09-02T02:00:00Z,28.7,-89.8,12.0,TANKER_A,80,10.0\n"
+        "222222222,2026-09-02T01:00:00Z,28.5,-90.0,14.0,CARGO_B,70,8.0\n"
+    )
+    res = load_and_filter(csv_file, bbox=[28.0, -91.0, 29.0, -89.0])
+    assert res["status"] == "success"
+    cands = res["data"]
+    assert len(cands) == 2
+    mmsis = [c["mmsi"] for c in cands]
+    assert set(mmsis) == {"111111111", "222222222"}
+    assert len(mmsis) == len(set(mmsis))
+
+
+def test_numeric_vessel_type_mapping(tmp_path):
+    csv_file = tmp_path / "vessel_types.csv"
+    csv_file.write_text(
+        "MMSI,BaseDateTime,LAT,LON,SOG,VesselName,VesselType,Draft\n"
+        "100000001,2026-09-02T01:00:00Z,28.5,-90.0,10.0,V_TANKER,80,10.0\n"
+        "100000002,2026-09-02T01:00:00Z,28.5,-90.0,10.0,V_CARGO,70,10.0\n"
+        "100000003,2026-09-02T01:00:00Z,28.5,-90.0,10.0,V_FISHING,30,10.0\n"
+        "100000004,2026-09-02T01:00:00Z,28.5,-90.0,10.0,V_OTHER,99,10.0\n"
+    )
+    res = load_and_filter(csv_file, bbox=[28.0, -91.0, 29.0, -89.0])
+    assert res["status"] == "success"
+    cands = {c["mmsi"]: c["vessel_type"] for c in res["data"]}
+    assert cands["100000001"] == "tanker"
+    assert cands["100000002"] == "cargo"
+    assert cands["100000003"] == "fishing"
+    assert cands["100000004"] == "other"
+
+
+
 if __name__ == "__main__":
     import json
 

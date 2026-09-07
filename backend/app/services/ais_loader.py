@@ -162,33 +162,34 @@ def load_and_filter(csv_path: str | Path | None = None, bbox: list[float] | None
         data = load_ais(str(csv_path) if csv_path else None, bbox, start_time, end_time)
         recs = data.get("records", [])
         min_lat, min_lon, max_lat, max_lon = bbox
-        cands = []
+        # Deduplicate records by MMSI (one candidate entry per vessel)
+        by_mmsi = {}
         for r in recs:
             lat = float(r.get("lat", 0.0))
             lon = float(r.get("lon", 0.0))
             if not (min_lat <= lat <= max_lat and min_lon <= lon <= max_lon):
                 continue
             raw_type = str(r.get("vessel_type", "cargo")).lower()
-            if "tank" in raw_type:
+            if "tank" in raw_type or raw_type in ("80", "81", "82", "83", "84", "85", "86", "87", "88", "89"):
                 vtype = "tanker"
-            elif "carg" in raw_type:
+            elif "carg" in raw_type or raw_type in ("70", "71", "72", "73", "74", "75", "76", "77", "78", "79"):
                 vtype = "cargo"
-            elif "fish" in raw_type:
+            elif "fish" in raw_type or raw_type in ("30", "31", "32"):
                 vtype = "fishing"
             else:
                 vtype = "other"
-            lat = float(r.get("lat", 0.0))
-            lon = float(r.get("lon", 0.0))
-            cands.append({
-                "mmsi": str(r.get("mmsi")),
+            mmsi = str(r.get("mmsi"))
+            by_mmsi[mmsi] = {
+                "mmsi": mmsi,
                 "vessel_name": r.get("vessel_name", "UNKNOWN"),
                 "vessel_type": vtype,
-                "position_at_event": {"lat": lat, "lon": lon},
+                "position_at_event": {"lat": lat, "lon": lon, "time": r.get("time")},
                 "anomaly_breakdown": {"gap": 0.0, "speed": 0.0, "draft": 0.0},
                 "distance_to_spill_km": 10.0,
                 "lat": lat,
                 "lon": lon,
-            })
+            }
+        cands = list(by_mmsi.values())
         cands.sort(key=lambda c: c["distance_to_spill_km"])
         return {"status": "success", "data": cands}
     except Exception as e:

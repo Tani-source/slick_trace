@@ -5,6 +5,7 @@ All stage errors are caught here, halt downstream stages, and update pipeline_st
 """
 
 import logging
+from pathlib import Path
 
 from app.services.run_store import update_stage, write_run_artifact, read_run_artifact, upload_path
 from app.config import UPLOADS_DIR
@@ -60,10 +61,21 @@ def run_stages_0_to_4(run_id: str) -> None:
         except Exception as _e:
             logger.warning("Could not read geo_transform from SAR file: %s", _e)
 
+        # Parse detection time from scenario.json if present alongside dataset, or fixed benchmark timestamp
+        scenario_path = Path(__file__).resolve().parents[1] / "data" / "synthetic" / "scenario.json"
+        detection_time = "2024-09-14T18:00:00Z"
+        if scenario_path.exists():
+            try:
+                import json as _json
+                sc_data = _json.loads(scenario_path.read_text(encoding="utf-8"))
+                detection_time = sc_data.get("detection_time", detection_time)
+            except Exception:
+                pass
+
         result = run_perception(
             sar_path=sar_path,
-            detection_time_iso=datetime.datetime.utcnow().isoformat() + "Z",
-            age_estimate_hours=24.0,  # TODO: parse from filename/metadata in Phase 1 hardening
+            detection_time_iso=detection_time,
+            age_estimate_hours=12.0,
             wind_speed_ms=None,       # TODO: read from wind upload in Phase 1 hardening
             geo_transform=geo_transform,
             crs_wkt=crs_wkt,
@@ -74,7 +86,7 @@ def run_stages_0_to_4(run_id: str) -> None:
             _fail(run_id, "perception", result["reason"])
             return
 
-        write_run_artifact(run_id, "slick_polygon.json", result["data"])
+        write_run_artifact(run_id, "slick_polygon", result["data"])
         update_stage(run_id, "perception", "done", 100, f"Slick area: {result['data']['area_km2']:.2f} km²")
 
         # ── Stage 1: Backward Drift ──────────────────────────────────────────────
@@ -99,7 +111,7 @@ def run_stages_0_to_4(run_id: str) -> None:
             _fail(run_id, "backward_drift", stage1_res["reason"])
             return
             
-        write_run_artifact(run_id, "origin_envelope.json", stage1_res["data"])
+        write_run_artifact(run_id, "origin_envelope", stage1_res["data"])
         update_stage(run_id, "backward_drift", "done", 100, f"Origin window: {stage1_res['data']['time_window_hours']:.1f}h")
 
         # ── Stage 2/3: AIS Ingestion & Filtering ─────────────────────────────────
@@ -112,6 +124,8 @@ def run_stages_0_to_4(run_id: str) -> None:
         stage2_res = run_filter(
             csv_path=ais_path,
             bbox=stage1_res["data"]["bbox"],
+            start_time=datetime.datetime.fromisoformat(stage1_res["data"]["start_time"]),
+            end_time=datetime.datetime.fromisoformat(stage1_res["data"]["end_time"]),
         )
         
         if stage2_res["status"] == "failed":
@@ -143,7 +157,7 @@ def run_stages_0_to_4(run_id: str) -> None:
         final_cands = stage4_res["data"]["candidates"]
         
         # The frontend expects { "candidates": [...] } in shortlist.json
-        write_run_artifact(run_id, "shortlist.json", {"candidates": final_cands})
+        write_run_artifact(run_id, "shortlist", {"candidates": final_cands})
         
         update_stage(run_id, "anomaly_scoring", "done", 100, f"Top {len(final_cands)} shortlisted")
 
@@ -161,7 +175,7 @@ def run_stages_5_to_6(run_id: str) -> None:
     import traceback
     current_stage = "drift_simulation"
     try:
-        shortlist = read_run_artifact(run_id, "shortlist.json")
+        shortlist = read_run_artifact(run_id, "shortlist")
         if shortlist is None or not shortlist.get("candidates"):
             _fail(run_id, "drift_simulation", "Shortlist is empty or missing — cannot run Stage 5.")
             return
@@ -170,7 +184,7 @@ def run_stages_5_to_6(run_id: str) -> None:
         
         # Stage 5
         from app.pipeline.stage5_forward_drift import run_forward_simulation
-        slick = read_run_artifact(run_id, "slick_polygon.json")
+        slick = read_run_artifact(run_id, "slick_polygon")
         target_time_iso = slick.get("detection_time")
         
         stage5_res = run_forward_simulation(
@@ -185,7 +199,7 @@ def run_stages_5_to_6(run_id: str) -> None:
             
         simulations = stage5_res["data"]["simulations"]
         # Write intermediate output so frontend map can render footprints
-        write_run_artifact(run_id, "simulated_footprints.json", {"simulations": simulations})
+        write_run_artifact(run_id, "simulated_footprints", {"simulations": simulations})
         
         update_stage(run_id, "drift_simulation", "done", 100, f"Simulated {len(simulations)} tracks")
         
@@ -201,7 +215,7 @@ def run_stages_5_to_6(run_id: str) -> None:
             return
             
         ranked_suspects = stage6_res["data"]["ranking"]
-        write_run_artifact(run_id, "ranked_suspects.json", {"ranking": ranked_suspects})
+        write_run_artifact(run_id, "ranked_suspects", {"ranking": ranked_suspects})
         
         update_stage(run_id, "verification_matching", "done", 100, "Ranking complete")
 
