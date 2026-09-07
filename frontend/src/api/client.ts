@@ -1,103 +1,138 @@
+/**
+ * client.ts — Typed fetch wrappers for every backend endpoint.
+ * Every call handles both success and failure branches (rules.md §2 frontend).
+ * Uses native fetch — no axios (rules.md §1 frontend allow-list).
+ */
+
 import type {
   DatasetType,
-  DatasetUploadResult,
+  DatasetUploadResponse,
   PipelineStatus,
-  RankedSuspects,
-  RunResponse,
-  Shortlist,
   SlickPolygon,
+  Shortlist,
+  RankedSuspects,
+  DarkShipResult,
+  OilTypeResult,
 } from "../types/contracts";
 
 const BASE = "/api";
 
-async function apiFetch<T>(
-  path: string,
-  init?: RequestInit,
-): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    const msg =
-      (body as Record<string, unknown>).detail ??
-      (body as Record<string, unknown>).reason ??
-      `HTTP ${res.status}`;
-    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+// ── Generic helpers ────────────────────────────────────────────────────────
+
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly detail?: string
+  ) {
+    super(message);
+    this.name = "ApiError";
   }
-  return res.json() as Promise<T>;
 }
+
+async function fetchJSON<T>(
+  input: RequestInfo,
+  init?: RequestInit
+): Promise<T> {
+  const response = await fetch(input, init);
+  if (!response.ok) {
+    let detail: string | undefined;
+    try {
+      const body = await response.json();
+      detail = body?.detail ?? JSON.stringify(body);
+    } catch {
+      detail = await response.text().catch(() => undefined);
+    }
+    throw new ApiError(response.status, `HTTP ${response.status}`, detail);
+  }
+  return response.json() as Promise<T>;
+}
+
+// ── Dataset upload ─────────────────────────────────────────────────────────
 
 export async function uploadDataset(
   type: DatasetType,
   file: File,
-  provenance: string = "illustrative",
-  windSpeedMs?: number | null,
-): Promise<DatasetUploadResult> {
+  runId?: string
+): Promise<DatasetUploadResponse> {
   const form = new FormData();
   form.append("file", file);
-  form.append("provenance", provenance);
-  if (windSpeedMs != null) {
-    form.append("wind_speed_ms", String(windSpeedMs));
-  }
-  return apiFetch<DatasetUploadResult>(`/datasets/${type}`, {
-    method: "POST",
-    body: form,
-  });
+  const url =
+    `${BASE}/datasets/${type}` + (runId ? `?run_id=${runId}` : "");
+  return fetchJSON<DatasetUploadResponse>(url, { method: "POST", body: form });
 }
 
-export async function runPipeline(runId: string): Promise<RunResponse> {
-  return apiFetch<RunResponse>("/pipeline/run", {
+// ── Pipeline control ───────────────────────────────────────────────────────
+
+export async function runPipeline(runId: string): Promise<{ run_id: string; message: string }> {
+  return fetchJSON(`${BASE}/pipeline/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ run_id: runId }),
   });
 }
 
-export async function simulatePipeline(runId: string): Promise<RunResponse> {
-  return apiFetch<RunResponse>("/pipeline/simulate", {
+export async function runSimulate(runId: string): Promise<{ run_id: string; message: string }> {
+  return fetchJSON(`${BASE}/pipeline/simulate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ run_id: runId }),
   });
 }
+
+// ── Polling ────────────────────────────────────────────────────────────────
 
 export async function getPipelineStatus(runId: string): Promise<PipelineStatus> {
-  return apiFetch<PipelineStatus>(`/pipeline/status?run_id=${encodeURIComponent(runId)}`);
+  return fetchJSON<PipelineStatus>(`${BASE}/pipeline/status?run_id=${runId}`);
 }
 
-export async function getSlick(runId: string): Promise<SlickPolygon> {
-  return apiFetch<SlickPolygon>(`/pipeline/slick?run_id=${encodeURIComponent(runId)}`);
+export async function getSlickPolygon(runId: string): Promise<SlickPolygon> {
+  return fetchJSON<SlickPolygon>(`${BASE}/pipeline/slick?run_id=${runId}`);
 }
 
-export async function getShortlist(runId: string): Promise<Shortlist> {
-  return apiFetch<Shortlist>(`/pipeline/shortlist?run_id=${encodeURIComponent(runId)}`);
+export async function getOriginEnvelope(runId: string): Promise<any> {
+  return fetchJSON<any>(`${BASE}/pipeline/origin-envelope?run_id=${runId}`);
 }
 
 export async function getResults(runId: string): Promise<RankedSuspects> {
-  return apiFetch<RankedSuspects>(`/results/${encodeURIComponent(runId)}`);
+  return fetchJSON<RankedSuspects>(`${BASE}/pipeline/results?run_id=${runId}`);
 }
 
-export async function downloadExport(runId: string): Promise<void> {
-  const res = await fetch(`${BASE}/results/${encodeURIComponent(runId)}/export`);
-  if (!res.ok) {
-    throw new Error(`Export failed: HTTP ${res.status}`);
-  }
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `slicktrace-results-${runId}.zip`;
-  a.click();
-  URL.revokeObjectURL(url);
+export async function simulatePipeline(runId: string): Promise<any> {
+  return fetchJSON<any>(`${BASE}/pipeline/simulate`, {
+    method: "POST",
+    body: JSON.stringify({ run_id: runId }),
+  });
 }
 
-export async function getPrototypeDarkShip(): Promise<Record<string, unknown>> {
-  return apiFetch<Record<string, unknown>>("/prototype/dark-ship");
+export async function getSimulatedFootprints(runId: string): Promise<any> {
+  return fetchJSON<any>(`${BASE}/pipeline/simulated-footprints?run_id=${runId}`);
 }
 
-export async function getPrototypeOilType(): Promise<Record<string, unknown>> {
-  return apiFetch<Record<string, unknown>>("/prototype/oil-type");
+export async function getShortlist(runId: string): Promise<Shortlist> {
+  return fetchJSON<Shortlist>(`${BASE}/pipeline/shortlist?run_id=${runId}`);
 }
 
-export async function health(): Promise<{ status: string; service: string }> {
-  return apiFetch<{ status: string; service: string }>("/health");
+// ── Results ────────────────────────────────────────────────────────────────
+
+export function getExportUrl(runId: string): string {
+  return `${BASE}/pipeline/results/${runId}/export`;
+}
+
+// ── Prototype ─────────────────────────────────────────────────────────────
+
+// ── Prototype (Tier 2) — never use run_id here (architecture.md §2.2) ──────
+
+export async function getPrototypeDarkShip(): Promise<DarkShipResult> {
+  return fetchJSON<DarkShipResult>(`${BASE}/prototype/dark-ship`);
+}
+
+export async function getPrototypeOilType(): Promise<OilTypeResult> {
+  return fetchJSON<OilTypeResult>(`${BASE}/prototype/oil-type`);
+}
+
+// ── Health ─────────────────────────────────────────────────────────────────
+
+export async function getHealth(): Promise<{ status: string }> {
+  return fetchJSON<{ status: string }>(`${BASE}/health`);
 }

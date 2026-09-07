@@ -11,7 +11,10 @@ CACHE_DIR = DATA_DIR / "cache"
 PROTOTYPE_CACHE_DIR = CACHE_DIR / "prototype"
 
 AGE_WEATHERING_LIMIT_HOURS = float(os.getenv("SLICKTRACE_AGE_LIMIT_HOURS", "72"))
+WEATHERING_VALIDITY_MAX_HOURS = AGE_WEATHERING_LIMIT_HOURS
 WIND_VALID_RANGE_M_S: tuple[float, float] = (1.5, 10.0)
+WIND_SPEED_MIN_MS = 1.5
+WIND_SPEED_MAX_MS = 10.0
 TOP_N_SHORTLIST = int(os.getenv("SLICKTRACE_TOP_N", "10"))
 
 _default_weights = BACKEND_DIR / "app" / "models" / "unet_weights.pt"

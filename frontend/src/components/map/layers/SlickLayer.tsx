@@ -1,27 +1,47 @@
-import { useEffect } from 'react';
-import { useMap } from 'react-leaflet';
-import L from 'leaflet';
-import { usePipelineStore } from '../../../state/pipelineStore';
-import { useUIStore } from '../../../state/uiStore';
+/**
+ * SlickLayer.tsx — Renders the detected slick polygon on the Leaflet map.
+ * design.md §5.1: accent-teal outline + low-opacity fill.
+ * Phase 1 deliverable: appears once Stage 0 is complete.
+ */
 
-export default function SlickLayer() {
-  const map = useMap();
-  const slick = usePipelineStore((s) => s.slick);
-  const layerVisible = useUIStore((s) => s.layerToggles.slick);
+import React from "react";
+import { Polygon, Tooltip } from "react-leaflet";
+import type { SlickPolygon } from "../../../types/contracts";
 
-  useEffect(() => {
-    if (!slick || !layerVisible) return;
-    const layer = L.polygon(slick.polygon, {
-      color: '#2DD4BF',
-      weight: 2,
-      fillColor: '#2DD4BF',
-      fillOpacity: 0.15,
-    }).addTo(map);
-    map.fitBounds(layer.getBounds(), { padding: [40, 40] });
-    return () => {
-      map.removeLayer(layer);
-    };
-  }, [map, slick, layerVisible]);
+interface Props {
+  slick: SlickPolygon;
+}
 
-  return null;
+export default function SlickLayer({ slick }: Props) {
+  // Leaflet expects [lat, lon] tuples — already in that format per contract
+  const positions = slick.polygon as [number, number][];
+
+  return (
+    <Polygon
+      positions={positions}
+      pathOptions={{
+        color: "#2dd4bf",       // --accent-teal
+        weight: 2,
+        opacity: 0.9,
+        fillColor: "#2dd4bf",
+        fillOpacity: 0.12,
+      }}
+    >
+      <Tooltip sticky>
+        <div style={{ fontSize: "12px", color: "#0b1e3d" }}>
+          <strong>Observed Slick</strong>
+          <br />
+          Area: {slick.area_km2.toFixed(2)} km²
+          <br />
+          Age est.: {slick.age_estimate_hours.toFixed(1)} h
+          {!slick.weathering_validity && (
+            <><br /><span style={{ color: "#f04438" }}>⚠ Age &gt;72h — low confidence</span></>
+          )}
+          {slick.fallback_used && (
+            <><br /><span style={{ color: "#f04438" }}>⚠ U-Net Fallback</span></>
+          )}
+        </div>
+      </Tooltip>
+    </Polygon>
+  );
 }

@@ -103,3 +103,20 @@ def save_stage_output(run_id: str, name: str, payload: dict) -> None:
 
 def load_stage_output(run_id: str, name: str) -> dict | None:
     return _read_json(run_dir(run_id) / f"{name}.json")
+
+
+# Alias helpers for orchestrator compatibility
+write_run_artifact = save_stage_output
+read_run_artifact = load_stage_output
+upload_path = uploaded_file
+
+
+def update_stage(run_id: str, stage_name: str, status: str, progress: int = 0, message: str = "") -> None:
+    current = load_pipeline_status(run_id) or {"run_id": run_id, "stages": {}}
+    stages = current.setdefault("stages", {})
+    stages[stage_name] = {
+        "status": status,
+        "progress": progress,
+        "message": message,
+    }
+    save_pipeline_status(run_id, current)

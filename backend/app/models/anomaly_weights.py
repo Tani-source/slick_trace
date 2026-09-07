@@ -21,3 +21,24 @@ ANOMALY_WEIGHTS = {
 }
 
 assert abs(sum(ANOMALY_WEIGHTS.values()) - 1.0) < 1e-9
+
+
+def run_anomaly_scoring(candidates: list[dict], top_n: int = 10) -> dict:
+    scored = []
+    for c in candidates:
+        cand = dict(c)
+        ab = cand.get("anomaly_breakdown", {})
+        blackout = float(ab.get("blackout", ab.get("gap", 0.0)))
+        speed = float(ab.get("speed", 0.0))
+        route = float(ab.get("route", 0.0))
+        draft = float(ab.get("draft", 0.0))
+        score = (
+            blackout * BLACKOUT_WEIGHT +
+            speed * SPEED_WEIGHT +
+            route * ROUTE_WEIGHT +
+            draft * DRAFT_WEIGHT
+        )
+        cand["anomaly_score"] = round(score, 4)
+        scored.append(cand)
+    scored.sort(key=lambda c: c["anomaly_score"], reverse=True)
+    return {"status": "success", "data": {"candidates": scored[:top_n]}}

@@ -1,72 +1,215 @@
-from __future__ import annotations
+"""
+orchestrator.py — Sequences pipeline stages and updates run status.
+All stage errors are caught here, halt downstream stages, and update pipeline_status.json.
+(rules.md §2 backend enforcement)
+"""
 
-from . import stage0_perception, stage1_backward_drift
-from ..services import run_store
-from ..schemas.pipeline_status import PipelineStatus, PipelineStage
+import logging
 
-def empty_pipeline_status(run_id: str) -> PipelineStatus:
-    return PipelineStatus(
-        run_id=run_id,
-        stages=[
-            PipelineStage(name="perception", status="pending", progress_pct=0, detail=""),
-            PipelineStage(name="ais_ingestion", status="pending", progress_pct=0, detail=""),
-            PipelineStage(name="candidate_filtering", status="pending", progress_pct=0, detail=""),
-            PipelineStage(name="anomaly_scoring", status="pending", progress_pct=0, detail=""),
-            PipelineStage(name="drift_simulation", status="pending", progress_pct=0, detail=""),
-            PipelineStage(name="verification_matching", status="pending", progress_pct=0, detail=""),
-        ]
-    )
+from app.services.run_store import update_stage, write_run_artifact, read_run_artifact, upload_path
+from app.config import UPLOADS_DIR
 
-def _persist(run_id: str, status: PipelineStatus) -> None:
-    run_store.save_pipeline_status(run_id, status.model_dump(mode="json"))
+logger = logging.getLogger(__name__)
 
-class Stage1Error(Exception):
-    pass
 
-def run_pipeline(run_id: str) -> dict:
-    """Execute all pipeline stages in sequence, halting on upstream failure."""
-    # Load pipeline status
-    status = empty_pipeline_status(run_id)
-    
-    # Stage 0: Perception (already implemented)
-    if status.stages[0].status == "pending":
-        # Check if SAR dataset is available
-        inputs = run_store.all_datasets(run_id)
-        if inputs.get("sar", {}).get("status") == "uploaded":
-            # Run Stage 0
-            result = stage0_perception.run_stage0(run_id)
-            if result["status"] == "success":
-                status.stages[0].status = "done"
-                status.stages[0].detail = f"Stage 0 complete: {result['data']['area_km2']} km²"
-                run_store.save_stage_output(run_id, "slick_polygon", result["data"])
-            else:
-                status.stages[0].status = "failed"
-                status.stages[0].detail = result["reason"]
-                _persist(run_id, status)
-                return {"status": "failed", "stage": "perception", "reason": result["reason"]}
-        else:
-            status.stages[0].detail = "Upload data first"
-    
-    # Stage 1: Backward Drift (Phase 1)
-    if status.stages[1].status == "pending":
+def _fail(run_id: str, stage_name: str, reason: str) -> None:
+    """Mark a stage failed and log it."""
+    logger.error("Stage '%s' failed for run %s: %s", stage_name, run_id, reason)
+    update_stage(run_id, stage_name, "failed", 0, reason)
+
+
+def _find_upload(run_id: str, dataset_type: str) -> str | None:
+    """Locate the uploaded file for a given dataset type."""
+    p = upload_path(run_id, dataset_type)
+    if p and p.exists():
+        return str(p)
+    return None
+
+
+def run_stages_0_to_4(run_id: str) -> None:
+    """
+    Background task: run Stages 0–4 in sequence.
+    Each stage failure halts downstream — no garbage propagation (rules.md §2).
+    """
+    import traceback
+    current_stage = "perception"
+    try:
+        import datetime
+
+        # ── Stage 0: Perception ──────────────────────────────────────────────────
+        update_stage(run_id, "perception", "running", 0, "Loading SAR image…")
+
+        sar_path = _find_upload(run_id, "sar")
+        if sar_path is None:
+            _fail(run_id, "perception", "SAR file not uploaded for this run.")
+            return
+
+        from app.pipeline.stage0_perception import run_perception
+
+        update_stage(run_id, "perception", "running", 20, "Running segmentation…")
+
+        # Read geo_transform + CRS from the uploaded file if it's a GeoTIFF,
+        # so the slick polygon is produced in real geographic coordinates.
+        geo_transform = None
+        crs_wkt = None
         try:
-            stage1 = stage1_backward_drift.Stage1(run_id)
-            stage1.run_backward_drift()
-            # Update status after Stage 1 completes
-            status.stages[1].status = "done"
-            status.stages[1].detail = "Backward drift completed successfully"
-            _persist(run_id, status)
-        except Stage1Error as e:
-            status.stages[1].status = "failed"
-            status.stages[1].detail = str(e)
-            _persist(run_id, status)
-            return {"status": "failed", "stage": "backward_drift", "reason": str(e)}
-    
-    # Stages 2-6: Not implemented in Phase 1
-    for i in range(2, len(status.stages)):
-        stage = status.stages[i]
-        if stage.status == "pending":
-            stage.detail = "Available in a later build phase"
-    
-    _persist(run_id, status)
-    return {"status": "success", "run_id": run_id, "stages_completed": 2}
+            import rasterio as _rio
+            with _rio.open(sar_path) as _src:
+                geo_transform = _src.transform
+                crs_wkt = _src.crs.to_wkt() if _src.crs else None
+        except Exception as _e:
+            logger.warning("Could not read geo_transform from SAR file: %s", _e)
+
+        result = run_perception(
+            sar_path=sar_path,
+            detection_time_iso=datetime.datetime.utcnow().isoformat() + "Z",
+            age_estimate_hours=24.0,  # TODO: parse from filename/metadata in Phase 1 hardening
+            wind_speed_ms=None,       # TODO: read from wind upload in Phase 1 hardening
+            geo_transform=geo_transform,
+            crs_wkt=crs_wkt,
+        )
+
+
+        if result["status"] == "failed":
+            _fail(run_id, "perception", result["reason"])
+            return
+
+        write_run_artifact(run_id, "slick_polygon.json", result["data"])
+        update_stage(run_id, "perception", "done", 100, f"Slick area: {result['data']['area_km2']:.2f} km²")
+
+        # ── Stage 1: Backward Drift ──────────────────────────────────────────────
+        current_stage = "backward_drift"
+        from app.pipeline.stage1_backward_drift import run_backward_drift
+        
+        update_stage(run_id, "backward_drift", "running", 0, "Seeding particles…")
+        
+        # Needs slick polygon
+        slick_data = result["data"]
+        
+        update_stage(run_id, "backward_drift", "running", 30, "Running reversed advection…")
+        stage1_res = run_backward_drift(
+            slick_polygon=slick_data["polygon"],
+            age_hours=slick_data["age_estimate_hours"],
+            detection_time_iso=slick_data.get("detection_time", datetime.datetime.utcnow().isoformat() + "Z"),
+            current_path=_find_upload(run_id, "current"),
+            wind_path=_find_upload(run_id, "wind")
+        )
+        
+        if stage1_res["status"] == "failed":
+            _fail(run_id, "backward_drift", stage1_res["reason"])
+            return
+            
+        write_run_artifact(run_id, "origin_envelope.json", stage1_res["data"])
+        update_stage(run_id, "backward_drift", "done", 100, f"Origin window: {stage1_res['data']['time_window_hours']:.1f}h")
+
+        # ── Stage 2/3: AIS Ingestion & Filtering ─────────────────────────────────
+        current_stage = "ais_ingestion"
+        from app.services.ais_loader import load_and_filter as run_filter
+        
+        update_stage(run_id, "ais_ingestion", "running", 0, "Loading AIS data…")
+        ais_path = _find_upload(run_id, "ais")
+        
+        stage2_res = run_filter(
+            csv_path=ais_path,
+            bbox=stage1_res["data"]["bbox"],
+        )
+        
+        if stage2_res["status"] == "failed":
+            _fail(run_id, "ais_ingestion", stage2_res.get("reason", "AIS ingestion failed"))
+            return
+            
+        cands = stage2_res["data"]
+        update_stage(run_id, "ais_ingestion", "done", 100, "Loaded AIS records")
+        
+        current_stage = "candidate_filtering"
+        update_stage(run_id, "candidate_filtering", "running", 0, "Filtering by vessel type…")
+        
+        # Store intermediate candidates before scoring (if we want, or just pass them along)
+        update_stage(run_id, "candidate_filtering", "done", 100, f"Found {len(cands)} candidates")
+
+        # ── Stage 4: Anomaly Scoring ─────────────────────────────────────────────
+        current_stage = "anomaly_scoring"
+        from app.models.anomaly_weights import run_anomaly_scoring
+        from app.config import TOP_N_SHORTLIST
+        
+        update_stage(run_id, "anomaly_scoring", "running", 0, f"Scoring {len(cands)} candidates…")
+        
+        stage4_res = run_anomaly_scoring(cands, top_n=TOP_N_SHORTLIST)
+        
+        if stage4_res["status"] == "failed":
+            _fail(run_id, "anomaly_scoring", stage4_res["reason"])
+            return
+            
+        final_cands = stage4_res["data"]["candidates"]
+        
+        # The frontend expects { "candidates": [...] } in shortlist.json
+        write_run_artifact(run_id, "shortlist.json", {"candidates": final_cands})
+        
+        update_stage(run_id, "anomaly_scoring", "done", 100, f"Top {len(final_cands)} shortlisted")
+
+    except Exception as e:
+        logger.error(f"Unhandled exception in stage {current_stage}: {str(e)}", exc_info=True)
+        _fail(run_id, current_stage, f"Internal error: {str(e)}")
+
+
+def run_stages_5_to_6(run_id: str) -> None:
+    """
+    Background task: run Stages 5–6.
+    ONLY called on the top-N shortlist (rules.md §3.8) — structurally enforced:
+    this function reads shortlist.json and refuses to proceed if it's absent.
+    """
+    import traceback
+    current_stage = "drift_simulation"
+    try:
+        shortlist = read_run_artifact(run_id, "shortlist.json")
+        if shortlist is None or not shortlist.get("candidates"):
+            _fail(run_id, "drift_simulation", "Shortlist is empty or missing — cannot run Stage 5.")
+            return
+
+        update_stage(run_id, "drift_simulation", "running", 0, "Starting forward drift simulation…")
+        
+        # Stage 5
+        from app.pipeline.stage5_forward_drift import run_forward_simulation
+        slick = read_run_artifact(run_id, "slick_polygon.json")
+        target_time_iso = slick.get("detection_time")
+        
+        stage5_res = run_forward_simulation(
+            shortlist_candidates=shortlist["candidates"], 
+            target_time_iso=target_time_iso,
+            current_path=_find_upload(run_id, "current"),
+            wind_path=_find_upload(run_id, "wind")
+        )
+        if stage5_res["status"] == "failed":
+            _fail(run_id, "drift_simulation", stage5_res["reason"])
+            return
+            
+        simulations = stage5_res["data"]["simulations"]
+        # Write intermediate output so frontend map can render footprints
+        write_run_artifact(run_id, "simulated_footprints.json", {"simulations": simulations})
+        
+        update_stage(run_id, "drift_simulation", "done", 100, f"Simulated {len(simulations)} tracks")
+        
+        # Stage 6
+        current_stage = "verification_matching"
+        update_stage(run_id, "verification_matching", "running", 0, "Matching footprints…")
+        
+        from app.pipeline.stage6_matching import run_matching
+        stage6_res = run_matching(simulations, slick["polygon"])
+        
+        if stage6_res["status"] == "failed":
+            _fail(run_id, "verification_matching", stage6_res["reason"])
+            return
+            
+        ranked_suspects = stage6_res["data"]["ranking"]
+        write_run_artifact(run_id, "ranked_suspects.json", {"ranking": ranked_suspects})
+        
+        update_stage(run_id, "verification_matching", "done", 100, "Ranking complete")
+
+    except Exception as e:
+        logger.error(f"Unhandled exception in stage {current_stage}: {str(e)}", exc_info=True)
+        _fail(run_id, current_stage, f"Internal error: {str(e)}")
+
+
+# Aliases for API compatibility
+run_pipeline = run_stages_0_to_4
+simulate_pipeline = run_stages_5_to_6

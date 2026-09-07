@@ -22,7 +22,7 @@ _NPY_MAGIC = b"\x93NUMPY"
 _NETCDF_CLASSIC_MAGIC = (b"CDF\x01", b"CDF\x02", b"CDF\x05")
 _HDF5_MAGIC = b"\x89HDF"
 
-_TIME_COLUMNS = {"timestamp", "time", "datetime", "date", "measurementtime"}
+_TIME_COLUMNS = {"timestamp", "time", "datetime", "date", "measurementtime", "basedatetime"}
 _AIS_MMSI_COLUMNS = {"mmsi", "mmsi_number", "shipid"}
 _LAT_COLUMNS = {"lat", "latitude", "y"}
 _LON_COLUMNS = {"lon", "longitude", "x"}

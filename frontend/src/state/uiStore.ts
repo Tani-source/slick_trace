@@ -1,47 +1,75 @@
-import { create } from 'zustand';
-import type { TabId } from '../types/contracts';
+/**
+ * uiStore.ts — Zustand store for purely presentational UI state.
+ * Owns: active tab, layer toggles, split-view, sidebar collapsed.
+ * Never re-derives pipeline results (architecture.md §2.3).
+ */
 
-interface UIState {
+import { create } from "zustand";
+
+export type TabId = "input" | "pipeline" | "shortlist" | "results";
+
+export type LayerId = 
+  | "slick" 
+  | "originEnvelope" 
+  | "aisTracks" 
+  | "releasePoints" 
+  | "driftFootprints";
+
+interface UiState {
   activeTab: TabId;
-  collapsed: boolean;
-  layerToggles: {
-    aisTracks: boolean;
-    slick: boolean;
-    releasePoints: boolean;
-    simulatedDrift: boolean;
-  };
-  splitView: boolean;
-  maximize: boolean;
+  sidebarCollapsed: boolean;
+  mapMaximized: boolean;
+  splitViewOpen: boolean;
+  activeLayers: Set<LayerId>;
+  highlightedMmsi: string | null;
+  timelineExpanded: boolean;
+  darkShipEnabled: boolean;
+  oilTypeEnabled: boolean;
 
+  // Actions
   setActiveTab: (tab: TabId) => void;
-  toggleCollapsed: () => void;
-  toggleLayer: (layer: keyof UIState['layerToggles']) => void;
-  setSplitView: (value: boolean) => void;
-  toggleMaximize: () => void;
+  toggleSidebar: () => void;
+  setMapMaximized: (v: boolean) => void;
+  setSplitViewOpen: (v: boolean) => void;
+  toggleLayer: (layer: LayerId) => void;
+  setHighlightedMmsi: (mmsi: string | null) => void;
+  setTimelineExpanded: (v: boolean) => void;
+  setDarkShipEnabled: (enabled: boolean) => void;
+  setOilTypeEnabled: (enabled: boolean) => void;
 }
 
-export const useUIStore = create<UIState>((set) => ({
-  activeTab: 'input',
-  collapsed: false,
-  layerToggles: {
-    aisTracks: true,
-    slick: true,
-    releasePoints: true,
-    simulatedDrift: true,
-  },
-  splitView: false,
-  maximize: false,
+export const useUiStore = create<UiState>((set, get) => ({
+  activeTab: "input", // default: Input tab per architecture.md §2.1
+  sidebarCollapsed: false,
+  mapMaximized: false,
+  splitViewOpen: false,
+  activeLayers: new Set<LayerId>(["slick", "originEnvelope", "aisTracks", "releasePoints", "driftFootprints"]),
+  highlightedMmsi: null,
+  timelineExpanded: false,
+  darkShipEnabled: false,
+  oilTypeEnabled: false,
 
   setActiveTab: (tab) => set({ activeTab: tab }),
 
-  toggleCollapsed: () => set((state) => ({ collapsed: !state.collapsed })),
+  toggleSidebar: () =>
+    set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+
+  setMapMaximized: (v) => set({ mapMaximized: v }),
+
+  setSplitViewOpen: (v) => set({ splitViewOpen: v }),
 
   toggleLayer: (layer) =>
-    set((state) => ({
-      layerToggles: { ...state.layerToggles, [layer]: !state.layerToggles[layer] },
-    })),
+    set((state) => {
+      const next = new Set(state.activeLayers);
+      if (next.has(layer)) next.delete(layer);
+      else next.add(layer);
+      return { activeLayers: next };
+    }),
 
-  setSplitView: (value) => set({ splitView: value }),
+  setHighlightedMmsi: (mmsi) => set({ highlightedMmsi: mmsi }),
 
-  toggleMaximize: () => set((state) => ({ maximize: !state.maximize })),
+  setTimelineExpanded: (v) => set({ timelineExpanded: v }),
+  
+  setDarkShipEnabled: (enabled) => set({ darkShipEnabled: enabled }),
+  setOilTypeEnabled: (enabled) => set({ oilTypeEnabled: enabled }),
 }));

@@ -1,34 +1,40 @@
-export type StageName =
-  | "perception"
-  | "ais_ingestion"
-  | "candidate_filtering"
-  | "anomaly_scoring"
-  | "drift_simulation"
-  | "verification_matching";
+/**
+ * contracts.ts — TypeScript interfaces mirroring the 4 backend JSON contracts.
+ * NO `any`. Strict mode. (rules.md §4, architecture.md §6)
+ * Must stay in lockstep with backend/app/schemas/*.py (rules.md §3.4).
+ */
 
+// ── pipeline_status.json ──────────────────────────────────────────────────
 export type StageStatus = "pending" | "running" | "done" | "failed";
 
-export interface PipelineStage {
-  name: StageName;
+export interface StageInfo {
+  name: string;
   status: StageStatus;
   progress_pct: number;
   detail: string;
 }
 
 export interface PipelineStatus {
-  run_id: string;
-  stages: PipelineStage[];
+  stages: StageInfo[];
 }
 
+// ── slick_polygon.json ────────────────────────────────────────────────────
 export interface SlickPolygon {
-  polygon: [number, number][];
-  detection_time: string;
-  bbox: [number, number, number, number];
+  polygon: [number, number][]; // [[lat, lon], ...]
+  detection_time: string; // ISO8601
+  bbox: [number, number, number, number]; // [minLat, minLon, maxLat, maxLon]
   area_km2: number;
   elongation_ratio: number;
-  age_estimate_hours: number | null;
-  weathering_validity: boolean;
-  age_confidence: "high" | "low";
+  age_estimate_hours: number;
+  weathering_validity: boolean; // false if age > 72h
+  fallback_used: boolean;
+}
+
+// ── shortlist.json ────────────────────────────────────────────────────────
+export interface PositionAtEvent {
+  lat: number;
+  lon: number;
+  time: string;
 }
 
 export interface AnomalyBreakdown {
@@ -38,25 +44,31 @@ export interface AnomalyBreakdown {
   draft: number;
 }
 
-export interface ShortlistCandidate {
+export interface ReleasePoint {
+  lat: number;
+  lon: number;
+  time: string;
+}
+
+export interface Candidate {
   mmsi: string;
   vessel_name: string;
-  vessel_type: "tanker" | "cargo" | "bunkering";
+  vessel_type: "tanker" | "cargo" | "bunkering" | string;
   operator: string;
   flag: string;
   destination: string;
-  position_at_event: { lat: number; lon: number; time: string };
+  position_at_event: PositionAtEvent;
   anomaly_score: number;
   anomaly_breakdown: AnomalyBreakdown;
-  candidate_release_points: { lat: number; lon: number; time: string }[];
+  candidate_release_points: ReleasePoint[];
 }
 
 export interface Shortlist {
-  run_id: string;
-  candidates: ShortlistCandidate[];
+  candidates: Candidate[];
 }
 
-export interface RankedSuspect {
+// ── ranked_suspects.json ──────────────────────────────────────────────────
+export interface RankedVessel {
   mmsi: string;
   vessel_name: string;
   match_score: number;
@@ -67,73 +79,59 @@ export interface RankedSuspect {
 }
 
 export interface RankedSuspects {
-  run_id: string;
-  ranking: RankedSuspect[];
+  ranking: RankedVessel[];
 }
 
+export interface SimulatedFootprint {
+  mmsi: string;
+  vessel_name: string;
+  simulated_polygon: [number, number][];
+  fallback_used: boolean;
+}
+
+export interface SimulatedFootprints {
+  simulations: SimulatedFootprint[];
+}
+
+// ── Dataset upload response (not a pipeline contract but typed here) ───────
 export type DatasetType = "wind" | "current" | "sar" | "ais";
+export type UploadStatus = "uploaded" | "invalid" | "not_uploaded";
 
-export interface DatasetUploadResult {
-  run_id: string;
-  type: DatasetType;
-  status: "uploaded" | "invalid";
-  reason?: string;
-  provenance: string;
-  file_name: string;
-  size_bytes: number;
-  bbox?: [number, number, number, number] | null;
-  date_range?: [string, string] | null;
-  detail?: string;
+// ── Prototype Tier 2 responses ─────────────────────────────────────────────
+export interface DarkShipResult {
+  prototype: boolean;
+  label: string;
+  detected_vessels: { lat: number; lon: number; confidence: number; note: string }[];
+  method: string;
 }
 
-export interface RunResponse {
-  run_id: string;
-  status: "started";
+export interface OilTypeResult {
+  prototype: boolean;
+  label: string;
+  classified_type: string;
+  confidence: number;
+  method: string;
+  note: string;
 }
-
-export type TabId = "results" | "input" | "pipeline" | "shortlist";
-
-export interface DatasetInfo {
-  status: "not_uploaded" | "uploaded" | "invalid";
-  reason?: string;
-  provenance?: string;
-  file_name?: string;
-  size_bytes?: number;
-  bbox?: [number, number, number, number] | null;
-  date_range?: [string, string] | null;
-}
-
-export const STAGE_LABELS: Record<StageName, string> = {
-  perception: "Perception",
-  ais_ingestion: "AIS Ingestion",
-  candidate_filtering: "Candidate Filtering",
-  anomaly_scoring: "Anomaly Scoring",
-  drift_simulation: "Drift Simulation",
-  verification_matching: "Verification & Matching",
-};
-
-export const STAGE_DESCRIPTIONS: Record<StageName, string> = {
-  perception:
-    "U-Net segmentation on SAR imagery → binary mask → oil slick polygon with area, shape descriptors, and age estimate.",
-  ais_ingestion:
-    "Ingest AIS vessel-tracking data; parse positions, timestamps, and vessel metadata for spatiotemporal filtering.",
-  candidate_filtering:
-    "Filter AIS traffic by spatiotemporal overlap with the origin envelope and vessel discharge capability.",
-  anomaly_scoring:
-    "Score candidates on blackout gaps, speed anomalies, route deviations, and draft inconsistencies → AnomalyScore [0,1].",
-  drift_simulation:
-    "Forward drift simulation from candidate release points to the detection timestamp using OpenDrift/OilDrift.",
-  verification_matching:
-    "Match simulated footprint against observed slick via IoU, centroid distance, and orientation → ranked suspect list.",
-};
-
-export const STAGE_ICONS: Record<StageName, string> = {
-  perception: "👁️",
-  ais_ingestion: "📡",
-  candidate_filtering: "🔍",
-  anomaly_scoring: "⚠️",
-  drift_simulation: "🌊",
-  verification_matching: "✅",
-};
-
 export type ProvenanceTag = "real" | "synthetic" | "illustrative";
+
+export interface DatasetUploadResponse {
+  status: "uploaded" | "invalid";
+  dataset_type: DatasetType;
+  filename: string;
+  run_id: string;
+  reason?: string;
+  bbox?: [number, number, number, number];
+  date_range?: [string, string];
+  provenance: ProvenanceTag;
+}
+
+export interface OriginEnvelope {
+  polygon: [number, number][];
+  bbox: [number, number, number, number];
+  area_km2: number;
+  time_window_hours: number;
+  start_time: string;
+  end_time: string;
+  fallback_used: boolean;
+}
