@@ -98,10 +98,10 @@ def discover_pairs(data_dir: Path) -> dict[tuple[str, str], list[tuple[Path, Pat
         files[(split, cls, kind)].append(path)
 
     pairs: DefaultDict[tuple[str, str], list[tuple[Path, Path]]] = defaultdict(list)
-    for (split, cls), imgs in files.items():
-        if (split, cls, "mask") not in files:
+    for (split, cls, kind), imgs in files.items():
+        if kind != "image":
             continue
-        masks = {p.stem: p for p in files[(split, cls, "mask")]}
+        masks = {p.stem: p for p in files.get((split, cls, "mask"), [])}
         for img in imgs:
             mask = masks.get(img.stem)
             if mask is not None:
@@ -145,8 +145,10 @@ class SlickDataset(Dataset):
     @staticmethod
     def _normalize(img: Tensor) -> Tensor:
         eps = 1e-6
-        lo = torch.quantile(img, 0.01, dim=(1, 2), keepdim=True)
-        hi = torch.quantile(img, 0.99, dim=(1, 2), keepdim=True)
+        b, h, w = img.shape
+        flat = img.reshape(b, h * w)
+        lo = torch.quantile(flat, 0.01, dim=1, keepdim=True).reshape(b, 1, 1)
+        hi = torch.quantile(flat, 0.99, dim=1, keepdim=True).reshape(b, 1, 1)
         img = (img - lo) / (hi - lo + eps)
         return img.clamp(0.0, 1.0)
 
