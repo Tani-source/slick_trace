@@ -1,0 +1,20 @@
+[project]
+name = "slicktrace-backend"
+version = "0.1.0"
+description = "Backend for SlickTrace (Oil Spill Source Attribution System)"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "python-multipart",
+    "pandas",
+    "geopandas",
+    "shapely",
+    "torch",
+    "torchvision",
+    "opendrift",
+    "scikit-learn",
+    "scipy",
+    "numpy"
+]
+requires-python = ">=3.11"
