@@ -53,9 +53,9 @@ planted blackout culprit); no MarineCadastre download or account needed.
 |---|---|---|
 | B1 | Demo region — **decided**: GoM offshore Louisiana (above) | ✅ |
 | B2 | ~~Download MarineCadastre AIS~~ — **replaced by synthetic generator** | ✅ |
-| B3 | Sanity-check the generated `data/synthetic/ais/tracks.csv` has the needed columns (`MMSI`, `LAT`, `LON`, `BaseDateTime`, `VesselType`, `Draft`, …) | ☐ |
+| B3 | Sanity-check the generated `data/synthetic/ais/tracks.csv` has the needed columns (`MMSI`, `LAT`, `LON`, `BaseDateTime`, `VesselType`, `Draft`, …) | ✅ |
 | B4 | ~~Decide real vs synthetic~~ — **decided: synthetic** (PRD §9 honest choice, documented) | ✅ |
-| B5 | Backtest — **decision: no real backtest in this build**; prepare the honest "synthetic-only validation" answer for judges (PRD §10 open question #1) | ☐ |
+| B5 | Backtest — **decision: no real backtest in this build**; prepare the honest "synthetic-only validation" answer for judges (PRD §10 open question #1) | ✅ |
 
 ### Hand-off to agent when done
 - Confirm `data/synthetic/ais/tracks.csv` column set.
