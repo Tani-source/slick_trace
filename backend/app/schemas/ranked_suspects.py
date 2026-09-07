@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from pydantic import BaseModel
-from typing import List
+
 
 class RankedSuspect(BaseModel):
     mmsi: str
@@ -10,5 +12,7 @@ class RankedSuspect(BaseModel):
     orientation_match: float
     rank: int
 
+
 class RankedSuspects(BaseModel):
-    ranking: List[RankedSuspect]
+    run_id: str
+    ranking: list[RankedSuspect]

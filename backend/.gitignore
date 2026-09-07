@@ -1,5 +1,7 @@
 .env
-.venv/
 __pycache__/
-*.pyc
-data/
+*.py[cod]
+.pytest_cache/
+data/uploads/
+data/runs/
+data/cache/

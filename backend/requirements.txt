@@ -11,3 +11,5 @@ opendrift
 scikit-learn
 scipy
 numpy
+pillow
+pytest

@@ -1,137 +1,111 @@
-"""U-Net segmentation model for Stage 0 (slick detection) plus weights loader.
-
-Architecture follows the classic Ronneberger U-Net with a 2-band input
-(Sentinel-1 VV + VH backscatter in dB, matching the Zenodo training dataset)
-and a single sigmoid output channel (oil/not-oil probability).
-
-Both `train_unet.py` and `stage0_perception.py` must use this module so the
-architecture always matches the checkpoint. `load_unet` reads checkpoints saved
-by `scripts/train_unet.py` (a dict with keys ``state_dict``/``config``) and also
-accepts a bare state dict, in which case default config is assumed.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
-
-import torch
-from torch import Tensor, nn
-
-DEFAULT_WEIGHTS: Path = Path(__file__).resolve().parent / "unet_weights.pt"
-DEFAULT_IN_CHANNELS: int = 2
-DEFAULT_BASE_FILTERS: int = 32
-DEFAULT_DEPTH: int = 4
 
 
-class _DoubleConv(nn.Module):
-    def __init__(self, in_ch: int, out_ch: int) -> None:
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True),
-        )
+def build_unet(in_channels: int = 1, out_channels: int = 1):
+    """Standard encoder-decoder U-Net (PyTorch) for SAR slick segmentation.
 
-    def forward(self, x: Tensor) -> Tensor:
-        return self.block(x)
-
-
-class _Down(nn.Module):
-    def __init__(self, in_ch: int, out_ch: int) -> None:
-        super().__init__()
-        self.pool = nn.MaxPool2d(2)
-        self.conv = _DoubleConv(in_ch, out_ch)
-
-    def forward(self, x: Tensor) -> Tensor:
-        return self.conv(self.pool(x))
-
-
-class _Up(nn.Module):
-    def __init__(self, in_ch: int, out_ch: int) -> None:
-        super().__init__()
-        self.up = nn.ConvTranspose2d(in_ch, in_ch // 2, kernel_size=2, stride=2)
-        self.conv = _DoubleConv(in_ch, out_ch)
-
-    def forward(self, x: Tensor, skip: Tensor) -> Tensor:
-        x = self.up(x)
-        x = torch.cat([x, skip], dim=1)
-        return self.conv(x)
-
-
-class UNet(nn.Module):
-    """U-Net for 2-band SAR slick segmentation.
-
-    Input: (B, 2, H, W) with H and W divisible by 2**depth.
-    Output: (B, 1, H, W) raw logits; apply sigmoid for probabilities.
+    PyTorch is imported lazily so the API server can boot even on machines
+    that do not yet have the ML stack installed (rules.md §1 allow-list).
     """
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
 
-    def __init__(self, in_channels: int = 2, base_filters: int = 32, depth: int = 4) -> None:
-        super().__init__()
-        if depth < 1:
-            raise ValueError("depth must be >= 1")
-        self.in_channels = in_channels
-        self.base_filters = base_filters
-        self.depth = depth
+    class DoubleConv(nn.Module):
+        def __init__(self, in_ch: int, out_ch: int) -> None:
+            super().__init__()
+            self.block = nn.Sequential(
+                nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False),
+                nn.BatchNorm2d(out_ch),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=False),
+                nn.BatchNorm2d(out_ch),
+                nn.ReLU(inplace=True),
+            )
 
-        self.inc = _DoubleConv(in_channels, base_filters)
-        self.downs = nn.ModuleList()
-        self.ups = nn.ModuleList()
-        for d in range(depth):
-            self.downs.append(_Down(base_filters * (2**d), base_filters * (2 ** (d + 1))))
-        for d in range(depth - 1, -1, -1):
-            self.ups.append(_Up(base_filters * (2 ** (d + 1)), base_filters * (2**d)))
-        self.outc = nn.Conv2d(base_filters, 1, kernel_size=1)
+        def forward(self, x):
+            return self.block(x)
 
-    def forward(self, x: Tensor) -> Tensor:
-        skips: list[Tensor] = []
-        y = self.inc(x)
-        skips.append(y)
-        for down in self.downs:
-            y = down(y)
-            skips.append(y)
-        for up, skip in zip(self.ups, reversed(skips[:-1])):
-            y = up(y, skip)
-        return self.outc(y)
+    class Down(nn.Module):
+        def __init__(self, in_ch: int, out_ch: int) -> None:
+            super().__init__()
+            self.pool = nn.MaxPool2d(2)
+            self.conv = DoubleConv(in_ch, out_ch)
+
+        def forward(self, x):
+            return self.conv(self.pool(x))
+
+    class Up(nn.Module):
+        def __init__(self, in_ch: int, out_ch: int) -> None:
+            super().__init__()
+            self.up = nn.ConvTranspose2d(in_ch, in_ch // 2, kernel_size=2, stride=2)
+            self.conv = DoubleConv(in_ch, out_ch)
+
+        def forward(self, x1, x2):
+            x1 = self.up(x1)
+            diff_y = x2.size(2) - x1.size(2)
+            diff_x = x2.size(3) - x1.size(3)
+            x1 = F.pad(x1, [diff_x // 2, diff_x - diff_x // 2, diff_y // 2, diff_y - diff_y // 2])
+            x = torch.cat([x2, x1], dim=1)
+            return self.conv(x)
+
+    class UNet(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.inc = DoubleConv(in_channels, 64)
+            self.down1 = Down(64, 128)
+            self.down2 = Down(128, 256)
+            self.down3 = Down(256, 512)
+            self.down4 = Down(512, 512)
+            self.up1 = Up(1024, 256)
+            self.up2 = Up(512, 128)
+            self.up3 = Up(256, 64)
+            self.up4 = Up(128, 64)
+            self.outc = nn.Conv2d(64, out_channels, kernel_size=1)
+
+        def forward(self, x):
+            x1 = self.inc(x)
+            x2 = self.down1(x1)
+            x3 = self.down2(x2)
+            x4 = self.down3(x3)
+            x5 = self.down4(x4)
+            x = self.up1(x5, x4)
+            x = self.up2(x, x3)
+            x = self.up3(x, x2)
+            x = self.up4(x, x1)
+            return self.outc(x)
+
+    return UNet()
 
 
-def build_unet(
-    in_channels: int = DEFAULT_IN_CHANNELS,
-    base_filters: int = DEFAULT_BASE_FILTERS,
-    depth: int = DEFAULT_DEPTH,
-) -> UNet:
-    return UNet(in_channels=in_channels, base_filters=base_filters, depth=depth)
+def load_weights(model, weights_path: str | Path) -> None:
+    import torch
+
+    state = torch.load(weights_path, map_location="cpu")
+    model.load_state_dict(state)
 
 
-def load_unet(weights_path: str | Path = DEFAULT_WEIGHTS) -> UNet:
-    """Load a checkpoint into an eval-mode UNet.
+def unet_inference(image_float: object, weights_path: str | None) -> object:
+    """Run U-Net inference and return a boolean mask ndarray.
 
-    Accepts a ``train_unet.py`` checkpoint dict (``state_dict`` + ``config``)
-    or a bare state dict (default config assumed).
+    Raises on any inference failure so callers surface an explicit failure
+    instead of silently falling back to a different method.
     """
-    path = Path(weights_path)
-    if not path.exists():
-        raise FileNotFoundError(f"unet weights not found: {path}")
-    checkpoint: Any = torch.load(path, map_location="cpu", weights_only=False)
-    if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
-        config = checkpoint.get("config", {})
-        model = build_unet(
-            in_channels=int(config.get("in_channels", DEFAULT_IN_CHANNELS)),
-            base_filters=int(config.get("base_filters", DEFAULT_BASE_FILTERS)),
-            depth=int(config.get("depth", DEFAULT_DEPTH)),
-        )
-        model.load_state_dict(checkpoint["state_dict"])
-    else:
-        model = build_unet()
-        try:
-            model.load_state_dict(checkpoint["state_dict"] if isinstance(checkpoint, dict) else checkpoint)
-        except Exception:
-            state = checkpoint
-            if isinstance(state, dict) and "model" in state:
-                state = state["model"]
-            model.load_state_dict(state)
+    import numpy as np
+    import torch
+
+    from ..config import UNET_WEIGHTS_PATH
+
+    resolved = weights_path or UNET_WEIGHTS_PATH
+    model = build_unet(in_channels=1, out_channels=1)
+    load_weights(model, resolved)
     model.eval()
-    return model
+
+    tensor = torch.from_numpy(np.asarray(image_float, dtype=np.float32))[None, None, :, :]
+    with torch.no_grad():
+        logits = model(tensor)
+        probs = torch.sigmoid(logits)
+    mask = (probs[0, 0].numpy() > 0.5)
+    return mask

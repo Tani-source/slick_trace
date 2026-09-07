@@ -1,11 +1,41 @@
+from __future__ import annotations
+
+from typing import Literal
+
 from pydantic import BaseModel, Field
-from typing import List
+
+StageName = Literal[
+    "perception",
+    "ais_ingestion",
+    "candidate_filtering",
+    "anomaly_scoring",
+    "drift_simulation",
+    "verification_matching",
+]
+StageStatusValue = Literal["pending", "running", "done", "failed"]
+
+STAGE_NAMES: list[StageName] = [
+    "perception",
+    "ais_ingestion",
+    "candidate_filtering",
+    "anomaly_scoring",
+    "drift_simulation",
+    "verification_matching",
+]
+
 
 class StageStatus(BaseModel):
-    name: str
-    status: str = Field(description="pending|running|done|failed")
-    progress_pct: int
-    detail: str
+    name: StageName
+    status: StageStatusValue = "pending"
+    progress_pct: int = Field(0, ge=0, le=100)
+    detail: str = ""
+
 
 class PipelineStatus(BaseModel):
-    stages: List[StageStatus]
+    run_id: str
+    stages: list[StageStatus]
+
+
+def empty_pipeline_status(run_id: str) -> PipelineStatus:
+    stages = [StageStatus(name=name) for name in STAGE_NAMES]
+    return PipelineStatus(run_id=run_id, stages=stages)
