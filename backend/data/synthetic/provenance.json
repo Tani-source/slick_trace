@@ -1,0 +1,94 @@
+{
+  "dataset": "SlickTrace Synthetic Demo Dataset",
+  "provenance": "synthetic",
+  "licence": "No third-party data. Generated programmatically, no co-pirated content.",
+  "licence_note": "Free to use. No downloads, no accounts, no licence acceptance required.",
+  "region": "gulf_of_mexico_louisiana_offshore",
+  "bbox": [
+    28.5,
+    -90.0,
+    29.0,
+    -89.0
+  ],
+  "forcing_window": [
+    "2024-09-13T00:00:00",
+    "2024-09-16T00:00:00"
+  ],
+  "deterministic": true,
+  "seed_desc": "Seeded RNG; regeneration reproduces the exact same files.",
+  "datasets": {
+    "currents": {
+      "path": "forcing/currents.nc",
+      "format": "NetCDF-3 (CF)",
+      "variables": [
+        "uo",
+        "vo"
+      ],
+      "units": "m/s",
+      "source": "synthetic (shelf current + anticyclonic eddy + M2 tide)",
+      "size_approx_mb": null
+    },
+    "wind": {
+      "path": "forcing/wind.nc",
+      "format": "NetCDF-3 (CF)",
+      "variables": [
+        "u10",
+        "v10"
+      ],
+      "units": "m/s",
+      "source": "synthetic (synoptic + diurnal + red noise)",
+      "size_approx_mb": null
+    },
+    "ais": {
+      "path": "ais/tracks.csv",
+      "format": "CSV (MarineCadastre columns)",
+      "n_vessels": 19,
+      "n_rows": 21382,
+      "source": "synthetic (realistic Gulf of Mexico traffic, incl. one blackout vessel)",
+      "columns": [
+        "MMSI",
+        "BaseDateTime",
+        "LAT",
+        "LON",
+        "SOG",
+        "COG",
+        "Heading",
+        "VesselName",
+        "IMO",
+        "CallSign",
+        "VesselType",
+        "Status",
+        "Length",
+        "Width",
+        "Draft",
+        "Cargo",
+        "TransceiverClass"
+      ]
+    },
+    "sar": {
+      "demo_scene": "sar/demo_scene.tif + sar/demo_scene_mask.png",
+      "training": {
+        "oil": 40,
+        "no_oil": 20
+      },
+      "format": "TIFF (2-band VV,VH float32 dB) + PNG mask",
+      "source": "synthetic (Rayleigh speckle, power-law clutter, dam ped slick)"
+    },
+    "scenario": {
+      "path": "scenario.json",
+      "slick_polygon_vertices": 10,
+      "ground_truth": {
+        "origin": [
+          28.8,
+          -89.62
+        ],
+        "release_time": "2024-09-14T06:00:00",
+        "detection_time": "2024-09-14T18:00:00",
+        "culprit_mmsi": "538009972"
+      }
+    }
+  },
+  "consistency": {
+    "note": "All datasets share one seed and one scenario; the slick polygon is advected through the same forcing fields the pipeline consults."
+  }
+}
