@@ -332,7 +332,7 @@ def main() -> int:
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=workers, drop_last=True)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=workers, drop_last=False)
 
-    model = build_unet(in_channels=2, base_filters=args.base_filters, depth=args.depth).to(device)
+    model = build_unet(in_channels=2).to(device)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"U-Net params: {n_params / 1e6:.2f}M", flush=True)
 

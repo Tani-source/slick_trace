@@ -1,6 +1,27 @@
 from __future__ import annotations
 
 from . import stage0_perception, stage1_backward_drift
+from ..services import run_store
+from ..schemas.pipeline_status import PipelineStatus, PipelineStage
+
+def empty_pipeline_status(run_id: str) -> PipelineStatus:
+    return PipelineStatus(
+        run_id=run_id,
+        stages=[
+            PipelineStage(name="perception", status="pending", progress_pct=0, detail=""),
+            PipelineStage(name="ais_ingestion", status="pending", progress_pct=0, detail=""),
+            PipelineStage(name="candidate_filtering", status="pending", progress_pct=0, detail=""),
+            PipelineStage(name="anomaly_scoring", status="pending", progress_pct=0, detail=""),
+            PipelineStage(name="drift_simulation", status="pending", progress_pct=0, detail=""),
+            PipelineStage(name="verification_matching", status="pending", progress_pct=0, detail=""),
+        ]
+    )
+
+def _persist(run_id: str, status: PipelineStatus) -> None:
+    run_store.save_pipeline_status(run_id, status.model_dump(mode="json"))
+
+class Stage1Error(Exception):
+    pass
 
 def run_pipeline(run_id: str) -> dict:
     """Execute all pipeline stages in sequence, halting on upstream failure."""

@@ -25,13 +25,18 @@ def _load_raster(input_path: Path) -> tuple[np.ndarray, np.ndarray]:
     if suffix == ".npy":
         raw = np.load(input_path, allow_pickle=False)
         arr = np.asarray(raw, dtype=np.float32)
+    elif suffix in (".tif", ".tiff"):
+        try:
+            import tifffile
+            arr = tifffile.imread(input_path).astype(np.float32)
+        except Exception:
+            from PIL import Image
+            with Image.open(input_path) as image:
+                arr = np.asarray(image, dtype=np.float32)
     else:
         from PIL import Image
-
         with Image.open(input_path) as image:
             arr = np.asarray(image, dtype=np.float32)
-    if arr.ndim == 3:
-        arr = arr.mean(axis=2)
     if arr.size == 0:
         raise ValueError("file empty")
     raw = arr.astype(np.float32, copy=True)

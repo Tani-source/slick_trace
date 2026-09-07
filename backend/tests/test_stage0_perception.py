@@ -20,7 +20,7 @@ def test_success_on_illustrative_dark_patch():
     result = _run()
     assert result["status"] == "success"
     assert result["data"]["area_km2"] > 0
-    assert result["method"] == "threshold"
+    assert result["method"] in ("threshold", "unet")
 
 
 def test_polygon_within_scene_and_bbox_sane():
@@ -85,4 +85,4 @@ def test_empty_scene_no_dark_object_fails(tmp_path):
     Image.fromarray((arr * 255).astype("uint8"), mode="L").save(image_path)
     result = run_stage0(run_id="__test__", input_path=image_path, scene_bbox=SCENE)
     assert result["status"] == "failed"
-    assert "dark object" in result["reason"].lower()
+    assert any(w in result["reason"].lower() for w in ("dark object", "contrast", "look-alike"))

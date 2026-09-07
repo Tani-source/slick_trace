@@ -5,3 +5,7 @@ __pycache__/
 data/uploads/
 data/runs/
 data/cache/
+*.pt
+*.tif
+*.nc
+

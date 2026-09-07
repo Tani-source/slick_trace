@@ -58,10 +58,10 @@ def build_unet(in_channels: int = 1, out_channels: int = 1):
             self.down1 = Down(64, 128)
             self.down2 = Down(128, 256)
             self.down3 = Down(256, 512)
-            self.down4 = Down(512, 512)
-            self.up1 = Up(1024, 256)
-            self.up2 = Up(512, 128)
-            self.up3 = Up(256, 64)
+            self.down4 = Down(512, 1024)
+            self.up1 = Up(1024, 512)
+            self.up2 = Up(512, 256)
+            self.up3 = Up(256, 128)
             self.up4 = Up(128, 64)
             self.outc = nn.Conv2d(64, out_channels, kernel_size=1)
 
@@ -80,11 +80,16 @@ def build_unet(in_channels: int = 1, out_channels: int = 1):
     return UNet()
 
 
-def load_weights(model, weights_path: str | Path) -> None:
+def load_weights(model, weights_path: str | Path) -> dict:
     import torch
 
     state = torch.load(weights_path, map_location="cpu")
-    model.load_state_dict(state)
+    if isinstance(state, dict) and "state_dict" in state:
+        sd = state["state_dict"]
+    else:
+        sd = state
+    model.load_state_dict(sd)
+    return sd
 
 
 def unet_inference(image_float: object, weights_path: str | None) -> object:
@@ -99,13 +104,43 @@ def unet_inference(image_float: object, weights_path: str | None) -> object:
     from ..config import UNET_WEIGHTS_PATH
 
     resolved = weights_path or UNET_WEIGHTS_PATH
-    model = build_unet(in_channels=1, out_channels=1)
-    load_weights(model, resolved)
+    state = torch.load(resolved, map_location="cpu")
+    sd = state.get("state_dict", state) if isinstance(state, dict) else state
+    
+    in_ch = sd["inc.block.0.weight"].shape[1] if "inc.block.0.weight" in sd else 1
+    out_ch = sd["outc.weight"].shape[0] if "outc.weight" in sd else 1
+
+    model = build_unet(in_channels=in_ch, out_channels=out_ch)
+    model.load_state_dict(sd)
     model.eval()
 
-    tensor = torch.from_numpy(np.asarray(image_float, dtype=np.float32))[None, None, :, :]
+    arr = np.asarray(image_float, dtype=np.float32)
+    # Channel normalization matching SlickDataset
+    if arr.ndim == 2:
+        arr = np.stack([arr, arr], axis=0) if in_ch == 2 else arr[None, :, :]
+    elif arr.ndim == 3:
+        if arr.shape[0] != in_ch and arr.shape[2] == in_ch:
+            arr = np.transpose(arr, (2, 0, 1))
+
+    t = torch.from_numpy(arr)
+    if t.ndim == 2:
+        t = t[None, :, :]
+    b, h, w = t.shape
+    flat = t.reshape(b, h * w)
+    lo = torch.quantile(flat, 0.01, dim=1, keepdim=True).reshape(b, 1, 1)
+    hi = torch.quantile(flat, 0.99, dim=1, keepdim=True).reshape(b, 1, 1)
+    t = (t - lo) / (hi - lo + 1e-6)
+    tensor = t.clamp(0.0, 1.0)[None, :, :, :]
+
     with torch.no_grad():
         logits = model(tensor)
-        probs = torch.sigmoid(logits)
-    mask = (probs[0, 0].numpy() > 0.5)
+        probs = torch.sigmoid(logits)[0, 0]
+
+    p_max = float(probs.max())
+    p_mean = float(probs.mean())
+    p_std = float(probs.std())
+
+    # Adaptive threshold for unet segmentation (fallback to 0.15 if probabilities are shifted)
+    thresh = max(0.15, min(0.5, p_mean + 1.0 * p_std)) if p_max >= 0.15 else 0.5
+    mask = (probs.numpy() > thresh)
     return mask

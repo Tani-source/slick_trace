@@ -14,7 +14,8 @@ AGE_WEATHERING_LIMIT_HOURS = float(os.getenv("SLICKTRACE_AGE_LIMIT_HOURS", "72")
 WIND_VALID_RANGE_M_S: tuple[float, float] = (1.5, 10.0)
 TOP_N_SHORTLIST = int(os.getenv("SLICKTRACE_TOP_N", "10"))
 
-UNET_WEIGHTS_PATH = os.getenv("SLICKTRACE_UNET_WEIGHTS", "") or None
+_default_weights = BACKEND_DIR / "app" / "models" / "unet_weights.pt"
+UNET_WEIGHTS_PATH = os.getenv("SLICKTRACE_UNET_WEIGHTS", "") or (str(_default_weights) if _default_weights.exists() else None)
 
 DEMO_SCENE_BBOX: list[float] = [28.4, -94.6, 29.4, -93.6]  # minLat, minLon, maxLat, maxLon
 DEMO_PIXEL_SIZE_DEG = 0.003
