@@ -2,13 +2,13 @@ import { useEffect } from 'react';
 import { useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { usePipelineStore } from '../../../state/pipelineStore';
-import { useUIStore } from '../../../state/uiStore';
+import { useUiStore } from '../../../state/uiStore';
 
 export default function SimulatedDriftLayer() {
   const map = useMap();
   const slick = usePipelineStore((s) => s.slick);
   const results = usePipelineStore((s) => s.results);
-  const layerVisible = useUIStore((s) => s.layerToggles.simulatedDrift);
+  const layerVisible = useUiStore((s) => s.activeLayers.has('driftFootprints'));
 
   useEffect(() => {
     if (!results || results.ranking.length === 0 || !slick || !layerVisible) return;

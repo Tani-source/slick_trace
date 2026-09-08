@@ -9,12 +9,11 @@ It is designed to give coast guards and investigators an evidence-backed shortli
 
 ---
 
-## 🌟 Key Features
+## 🌟 Key Features & Pipeline Stages
 
-### Pipeline Stages
-1. **Perception (Stage 0):** U-Net segmentation on Sentinel-1 SAR imagery to detect and characterize an oil slick polygon, area, and age.
+1. **Perception (Stage 0):** U-Net segmentation on Sentinel-1 SAR imagery to detect and characterize an oil slick polygon, area, and age. Includes a robust fallback generator for synthetic polygons when SAR files lack metadata.
 2. **Backward Drift (Stage 1):** Uses OpenDrift/OilDrift reversed advection (with CMEMS ocean currents and ERA5 wind) to trace the slick back to its origin envelope.
-3. **AIS Ingestion & Candidate Filtering (Stage 2 & 3):** Spatially indexes AIS vessel-position records and filters by discharge-capable vessel types.
+3. **AIS Ingestion & Candidate Filtering (Stage 2 & 3):** Spatially indexes AIS vessel-position records and filters by discharge-capable vessel types. Falls back seamlessly to synthetic vessel data generation in unmonitored regions.
 4. **Anomaly Scoring (Stage 4):** Scores candidates based on AIS blackout/gaps, speed anomalies, route deviation, and draft inconsistency to generate a shortlist.
 5. **Forward Drift Simulation (Stage 5):** Runs a forward physics simulation (advection + wind drag + Fay spreading) from the shortlisted candidate release points.
 6. **Verification & Matching (Stage 6):** Compares the simulated drift footprints to the original SAR observation using Intersection-over-Union (IoU) and centroid distance to produce a final, ranked MatchScore.
@@ -31,11 +30,11 @@ It is designed to give coast guards and investigators an evidence-backed shortli
 * **Framework:** React 18 with Vite
 * **Styling:** Tailwind CSS v4 (with standard utility CSS)
 * **State Management:** Zustand
-* **Map Engine:** React Leaflet + CartoDB Basemaps
+* **Map Engine:** React Leaflet + CartoDB/Esri Dark Gray Basemaps (Responsive Split-Pane UI)
 
 **Backend**
 * **Framework:** FastAPI (Python 3.10+)
-* **Processing:** NumPy, GeoPandas, Shapely
+* **Processing:** NumPy, GeoPandas, Shapely, Rasterio
 * **Simulation:** OpenDrift wrapper (mocked for demo purposes, seamlessly swappable)
 * **Server:** Uvicorn
 
@@ -101,7 +100,7 @@ To run the application locally for the demo:
 **1. Start the FastAPI Backend**
 ```bash
 cd backend
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+PYTHONPATH=$(pwd) python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 **2. Start the Vite Frontend**

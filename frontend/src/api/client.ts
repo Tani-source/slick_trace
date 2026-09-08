@@ -15,7 +15,9 @@ import type {
   OilTypeResult,
 } from "../types/contracts";
 
-const BASE = "/api";
+const BASE = typeof window !== 'undefined' && window.location.origin.includes('http://localhost:5173')
+  ? '/api'
+  : 'http://localhost:8000/api';
 
 // ── Generic helpers ────────────────────────────────────────────────────────
 
@@ -39,11 +41,13 @@ async function fetchJSON<T>(
     let detail: string | undefined;
     try {
       const body = await response.json();
-      detail = body?.detail ?? JSON.stringify(body);
+      detail = typeof body?.detail === 'object'
+        ? (body.detail?.reason ?? JSON.stringify(body.detail))
+        : (body?.detail ?? JSON.stringify(body));
     } catch {
       detail = await response.text().catch(() => undefined);
     }
-    throw new ApiError(response.status, `HTTP ${response.status}`, detail);
+    throw new ApiError(response.status, `HTTP ${response.status}: ${detail ?? 'unknown error'}`, detail);
   }
   return response.json() as Promise<T>;
 }
@@ -56,9 +60,9 @@ export async function uploadDataset(
   runId?: string
 ): Promise<DatasetUploadResponse> {
   const form = new FormData();
-  form.append("file", file);
-  const url =
-    `${BASE}/datasets/${type}` + (runId ? `?run_id=${runId}` : "");
+  // Pass the File directly — no arrayBuffer() re-wrap which can corrupt content-type/filename
+  form.append("file", file, file.name || "dataset");
+  const url = `${BASE}/datasets/${type}` + (runId ? `?run_id=${runId}` : "");
   return fetchJSON<DatasetUploadResponse>(url, { method: "POST", body: form });
 }
 
@@ -95,7 +99,7 @@ export async function getOriginEnvelope(runId: string): Promise<any> {
 }
 
 export async function getResults(runId: string): Promise<RankedSuspects> {
-  return fetchJSON<RankedSuspects>(`${BASE}/pipeline/results?run_id=${runId}`);
+  return fetchJSON<RankedSuspects>(`${BASE}/results/${runId}`);
 }
 
 export async function simulatePipeline(runId: string): Promise<any> {

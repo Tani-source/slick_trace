@@ -21,7 +21,7 @@ const DEFAULT_ZOOM = 7;
 
 function MapController() {
   const map = useMap();
-  const { slickPolygon } = usePipelineStore();
+  const { slick: slickPolygon } = usePipelineStore();
 
   useEffect(() => {
     if (slickPolygon?.bbox) {
@@ -33,15 +33,31 @@ function MapController() {
     }
   }, [slickPolygon, map]);
 
+  useEffect(() => {
+    const container = map.getContainer();
+    let resizeTimer: number;
+    const resizeObserver = new ResizeObserver(() => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        map.invalidateSize();
+      }, 50);
+    });
+    resizeObserver.observe(container);
+    return () => {
+      resizeObserver.disconnect();
+      window.clearTimeout(resizeTimer);
+    };
+  }, [map]);
+
   return null;
 }
 
 export default function MapCanvas() {
-  const { slickPolygon, shortlist, originEnvelope, simulatedFootprints, connectionLost } = usePipelineStore();
+  const { slick: slickPolygon, shortlist, originEnvelope, simulatedFootprints, connectionLost } = usePipelineStore();
   const { activeLayers, darkShipEnabled } = useUiStore();
 
   return (
-    <div className="relative flex-1 h-full">
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <MapContainer
         center={DEFAULT_CENTER}
         zoom={DEFAULT_ZOOM}
@@ -49,11 +65,11 @@ export default function MapCanvas() {
         zoomControl={false}
         attributionControl={false}
       >
-        {/* Basemap — CartoDB Dark Matter gives the --bg-ocean aesthetic */}
+        {/* Basemap — Esri Dark Gray gives a dark aesthetic without requiring an API key */}
         <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-          maxZoom={19}
+          url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+          attribution='Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ'
+          maxZoom={16}
         />
 
         <MapController />
@@ -90,20 +106,24 @@ export default function MapCanvas() {
       {/* Empty state overlay when no data loaded */}
       {!slickPolygon && (
         <div
-          className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
-          style={{ zIndex: 500 }}
+          className="st-empty-state"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 500,
+            pointerEvents: 'none',
+            background: 'rgba(8, 20, 32, 0.4)'
+          }}
         >
-          <div
-            className="flex flex-col items-center gap-2 px-6 py-4 rounded-lg"
-            style={{
-              background: "rgba(18,42,82,0.85)",
-              border: "1px solid var(--border-subtle)",
-              backdropFilter: "blur(6px)",
-            }}
-          >
-            <p className="text-caption text-center" style={{ color: "var(--text-secondary)" }}>
-              Upload datasets and run the pipeline — the slick polygon, AIS tracks, and drift layers will appear here.
-            </p>
+          <div style={{
+            background: 'var(--panel)',
+            border: '1px solid var(--line-strong)',
+            backdropFilter: 'blur(6px)',
+            padding: '16px 24px',
+            borderRadius: '8px',
+            textAlign: 'center'
+          }}>
+            Upload datasets and run the pipeline — the slick polygon, AIS tracks, and drift layers will appear here.
           </div>
         </div>
       )}

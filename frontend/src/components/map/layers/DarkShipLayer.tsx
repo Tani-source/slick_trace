@@ -23,7 +23,7 @@ export default function DarkShipLayer() {
 
   return (
     <>
-      {data.detected_vessels.map((v, i) => (
+      {(data.detected_vessels ?? []).map((v, i) => (
         <CircleMarker
           key={i}
           center={[v.lat, v.lon]}

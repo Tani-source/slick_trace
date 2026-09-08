@@ -80,11 +80,21 @@ def _load_unet() -> Any:
 def _threshold_segment(sar_array: np.ndarray, threshold: float = 0.3) -> np.ndarray:
     """
     Fallback segmentation: simple intensity threshold on normalized SAR amplitude.
+    Ignores 0 values which typically represent NoData padding in satellite swaths.
     Explicitly documented as a fallback, not the primary model (rules.md §3.1).
     """
-    normalized = (sar_array - sar_array.min()) / (sar_array.max() - sar_array.min() + 1e-8)
+    valid_mask = sar_array > 0
+    if not valid_mask.any():
+        return np.zeros_like(sar_array, dtype=np.uint8)
+        
+    valid_data = sar_array[valid_mask]
+    min_val, max_val = float(valid_data.min()), float(valid_data.max())
+    
+    normalized = np.ones_like(sar_array)  # default to 1 (bright/not-slick) for NoData
+    normalized[valid_mask] = (sar_array[valid_mask] - min_val) / (max_val - min_val + 1e-8)
+    
     # Oil slicks appear as dark regions in SAR (low backscatter)
-    mask = (normalized < threshold).astype(np.uint8)
+    mask = ((normalized < threshold) & valid_mask).astype(np.uint8)
     return mask
 
 
@@ -133,7 +143,8 @@ def _mask_to_polygon(
 
         coords = list(merged.exterior.coords)
         bounds = merged.bounds  # (minx, miny, maxx, maxy)
-        if geo_transform is None:
+        is_identity = geo_transform is None or getattr(geo_transform, "is_identity", False)
+        if is_identity:
             # Map pixel coordinates (row 0..128, col 0..128) to scene_bbox (min_lat, min_lon, max_lat, max_lon)
             from ..config import DEMO_SCENE_BBOX
             sb = scene_bbox or DEMO_SCENE_BBOX
@@ -179,10 +190,10 @@ def _mask_to_polygon(
         logger.warning("shapely/rasterio polygon extraction failed: %s — using synthetic fallback", exc)
         # Synthetic demo polygon (Gulf of Mexico demo region)
         demo_coords = [
-            [28.5, -90.1], [28.52, -90.05], [28.48, -89.95],
-            [28.44, -90.0], [28.46, -90.1], [28.5, -90.1],
+            [28.9, -94.1], [28.92, -94.05], [28.88, -93.95],
+            [28.84, -94.0], [28.86, -94.1], [28.9, -94.1],
         ]
-        demo_bbox = [28.44, -90.1, 28.52, -89.95]
+        demo_bbox = [28.84, -94.1, 28.92, -93.95]
         return demo_coords, demo_bbox, 12.4, 2.3, True
 
 

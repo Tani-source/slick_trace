@@ -56,8 +56,9 @@ def run_stages_0_to_4(run_id: str) -> None:
         try:
             import rasterio as _rio
             with _rio.open(sar_path) as _src:
-                geo_transform = _src.transform
-                crs_wkt = _src.crs.to_wkt() if _src.crs else None
+                if _src.transform and not getattr(_src.transform, "is_identity", False):
+                    geo_transform = _src.transform
+                    crs_wkt = _src.crs.to_wkt() if _src.crs else None
         except Exception as _e:
             logger.warning("Could not read geo_transform from SAR file: %s", _e)
 

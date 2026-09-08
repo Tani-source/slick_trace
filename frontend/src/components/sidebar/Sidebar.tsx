@@ -1,84 +1,55 @@
-import { useUIStore } from '../../state/uiStore';
-import type { TabId } from '../../types/contracts';
-import { Droplet, ListChecks, LayoutGrid, UploadCloud, Workflow } from 'lucide-react';
-import TabInput from './TabInput';
-import TabPipeline from './TabPipeline';
-import TabResults from './TabResults';
-import TabShortlist from './TabShortlist';
+import { useUiStore } from '../../state/uiStore';
+import type { TabId } from '../../state/uiStore';
 
-const TABS: { id: TabId; label: string; Icon: typeof Droplet }[] = [
-  { id: 'results', label: 'Results', Icon: LayoutGrid },
-  { id: 'input', label: 'Input', Icon: UploadCloud },
-  { id: 'pipeline', label: 'Pipeline', Icon: Workflow },
-  { id: 'shortlist', label: 'Shortlist', Icon: ListChecks },
+const NAV_ITEMS = [
+  { id: 'output' as TabId, num: 1, title: 'Verdict', subtitle: 'Attribution map & report' },
+  { id: 'input' as TabId, num: 2, title: 'Datasets', subtitle: 'Wind, SAR, AIS input' },
+  { id: 'pipeline' as TabId, num: 3, title: 'Pipeline', subtitle: 'Execution & logs' },
+  { id: 'suspects' as TabId, num: 4, title: 'Shortlist', subtitle: 'Candidate vessels' },
 ];
 
-const TAB_PANELS: Record<TabId, () => JSX.Element> = {
-  input: () => <TabInput />,
-  pipeline: () => <TabPipeline />,
-  results: () => <TabResults />,
-  shortlist: () => <TabShortlist />,
-};
-
 export default function Sidebar() {
-  const activeTab = useUIStore((s) => s.activeTab);
-  const collapsed = useUIStore((s) => s.collapsed);
-  const setActiveTab = useUIStore((s) => s.setActiveTab);
-  const toggleCollapsed = useUIStore((s) => s.toggleCollapsed);
-
-  const ActivePanel = TAB_PANELS[activeTab];
+  const collapsed = useUiStore((s) => s.sidebarCollapsed);
+  const activeTab = useUiStore((s) => s.activeTab);
+  const toggleCollapsed = useUiStore((s) => s.toggleSidebar);
+  const setActiveTab = useUiStore((s) => s.setActiveTab);
 
   return (
-    <div
-      className="flex bg-panel border-r border-border-subtle shrink-0 transition-all duration-200"
-      style={{ width: collapsed ? 56 : 340 }}
-    >
-      <div className="flex flex-col shrink-0 w-14">
-        <div className="flex items-center justify-center h-12 border-b border-border-subtle shrink-0">
-          <button
-            type="button"
-            aria-label="Toggle sidebar"
-            onClick={toggleCollapsed}
-            className="p-2 rounded hover:bg-panel-raised text-text-primary"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
+    <div className={`st-rail ${collapsed ? 'collapsed' : ''}`}>
+      <div className="st-rail-head">
+        <button type="button" className="st-burger" onClick={toggleCollapsed}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+          </svg>
+        </button>
+        <div className="st-brand">
+          <span className="st-mark">❖</span>
+          <span className="st-name">SlickTrace</span>
+          <span className="st-sub">Beta</span>
         </div>
-        {TABS.map(({ id, label, Icon }) => {
-          const isActive = activeTab === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setActiveTab(id)}
-              title={label}
-              className="relative flex items-center justify-center h-12 hover:bg-panel-raised"
-              style={{
-                borderLeft: isActive ? '2px solid var(--color-accent-teal)' : '2px solid transparent',
-              }}
-            >
-              <Icon
-                size={20}
-                className={isActive ? 'text-accent-teal' : 'text-text-secondary'}
-              />
-            </button>
-          );
-        })}
       </div>
-
-      {!collapsed && (
-        <div className="flex flex-col flex-1 min-w-0 border-l border-border-subtle overflow-hidden">
-          <div className="flex items-center gap-2 h-12 px-3 shrink-0 border-b border-border-subtle">
-            <Droplet className="text-accent-teal" size={18} />
-            <span className="text-display font-semibold text-text-primary select-none">SlickTrace</span>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            <ActivePanel />
-          </div>
-        </div>
-      )}
+      <div className="st-nav">
+        <div className="st-navlabel">WORKFLOW</div>
+        {NAV_ITEMS.map((item) => (
+          <button
+            key={item.id}
+            className={`st-navbtn ${activeTab === item.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(item.id)}
+          >
+            <div className="st-num">{item.num}</div>
+            <div className="st-label">
+              <b>{item.title}</b>
+              <span>{item.subtitle}</span>
+            </div>
+          </button>
+        ))}
+      </div>
+      <div className="st-rail-foot">
+        <span className="st-status-dot"></span>
+        <span className="st-foot-text">System operational</span>
+      </div>
     </div>
   );
 }

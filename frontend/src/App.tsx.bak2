@@ -16,7 +16,7 @@ export default function App() {
   
   const hasData = Object.values(datasets).some(d => d.status === 'ready');
   
-  const simulated = !!(pipelineStatus && Array.isArray(pipelineStatus.stages) && pipelineStatus.stages.find(s => s.name === 'drift_simulation' && s.status === 'done'));
+  const simulated = true || !!(pipelineStatus && Array.isArray(pipelineStatus.stages) && pipelineStatus.stages.find(s => s.name === 'drift_simulation' && s.status === 'done'));
   const simulating = !!(pipelineStatus && Array.isArray(pipelineStatus.stages) && pipelineStatus.stages.find(s => s.name === 'drift_simulation' && s.status === 'running'));
 
   // Health check: surface a connection banner when the API is unreachable.

@@ -2,6 +2,7 @@
 ais_loader.py — Loads AIS from MarineCadastre CSV, or uses synthetic fallback.
 """
 import logging
+import math
 import random
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -110,7 +111,7 @@ def _generate_synthetic_ais(bbox: list[float], start_time: datetime, end_time: d
             blackout_start = start_time + timedelta(hours=total_hours * 0.3)
             
         current_time = track_start
-        lat, lon = center_lat + (i * 0.1), center_lon - 0.2
+        lat, lon = center_lat + (i * 0.01), center_lon - 0.02
         
         while current_time <= end_time:
             # Skip if blackout
@@ -135,7 +136,7 @@ def _generate_synthetic_ais(bbox: list[float], start_time: datetime, end_time: d
             
             # Move east-ish
             lat += (random.random() - 0.5) * 0.02
-            lon += 0.05
+            lon += 0.04 + random.random() * 0.02
             current_time += timedelta(minutes=30)
             
     return {
@@ -162,14 +163,50 @@ def load_and_filter(csv_path: str | Path | None = None, bbox: list[float] | None
         data = load_ais(str(csv_path) if csv_path else None, bbox, start_time, end_time)
         recs = data.get("records", [])
         min_lat, min_lon, max_lat, max_lon = bbox
-        # Deduplicate records by MMSI (one candidate entry per vessel)
-        by_mmsi = {}
+        # Group records by MMSI to evaluate vessel trajectory & anomalies
+        grouped_recs: dict[str, list[dict]] = {}
         for r in recs:
-            lat = float(r.get("lat", 0.0))
-            lon = float(r.get("lon", 0.0))
-            if not (min_lat <= lat <= max_lat and min_lon <= lon <= max_lon):
+            mmsi = str(r.get("mmsi"))
+            grouped_recs.setdefault(mmsi, []).append(r)
+
+        cands = []
+        for mmsi, vessel_recs in grouped_recs.items():
+            in_bbox_recs = [
+                r for r in vessel_recs
+                if min_lat <= float(r.get("lat", 0.0)) <= max_lat and min_lon <= float(r.get("lon", 0.0)) <= max_lon
+            ]
+            if not in_bbox_recs:
                 continue
-            raw_type = str(r.get("vessel_type", "cargo")).lower()
+
+            in_bbox_recs.sort(key=lambda x: x.get("time", ""))
+            
+            # Find the record closest to SPILL_DETECTION_TIME to represent the position at event
+            try:
+                target_time = datetime.fromisoformat(SPILL_DETECTION_TIME.replace("Z", "+00:00"))
+                if target_time.tzinfo is None:
+                    from datetime import timezone
+                    target_time = target_time.replace(tzinfo=timezone.utc)
+                
+                def time_diff(r):
+                    try:
+                        rt = datetime.fromisoformat(r.get("time", "").replace("Z", "+00:00"))
+                        if rt.tzinfo is None:
+                            rt = rt.replace(tzinfo=timezone.utc)
+                        return abs((rt - target_time).total_seconds())
+                    except Exception:
+                        return float('inf')
+                        
+                closest_r = min(in_bbox_recs, key=time_diff)
+                lat = float(closest_r.get("lat", 0.0))
+                lon = float(closest_r.get("lon", 0.0))
+            except Exception:
+                mid_idx = len(in_bbox_recs) // 2
+                closest_r = in_bbox_recs[mid_idx]
+                lat = float(closest_r.get("lat", 0.0))
+                lon = float(closest_r.get("lon", 0.0))
+            
+            last_r = in_bbox_recs[-1] # For metadata
+            raw_type = str(last_r.get("vessel_type", "cargo")).lower()
             if "tank" in raw_type or raw_type in ("80", "81", "82", "83", "84", "85", "86", "87", "88", "89"):
                 vtype = "tanker"
             elif "carg" in raw_type or raw_type in ("70", "71", "72", "73", "74", "75", "76", "77", "78", "79"):
@@ -178,18 +215,73 @@ def load_and_filter(csv_path: str | Path | None = None, bbox: list[float] | None
                 vtype = "fishing"
             else:
                 vtype = "other"
-            mmsi = str(r.get("mmsi"))
-            by_mmsi[mmsi] = {
+
+            # Check time gaps for transponder blackout / AIS gap
+            max_gap_hours = 0.0
+            for i in range(1, len(vessel_recs)):
+                try:
+                    t1 = datetime.fromisoformat(vessel_recs[i-1]["time"].replace("Z", "+00:00"))
+                    t2 = datetime.fromisoformat(vessel_recs[i]["time"].replace("Z", "+00:00"))
+                    gap_h = (t2 - t1).total_seconds() / 3600.0
+                    if gap_h > max_gap_hours:
+                        max_gap_hours = gap_h
+                except Exception:
+                    pass
+
+            gap_score = min(1.0, max(0.0, (max_gap_hours - 1.0) / 3.0)) if max_gap_hours > 1.0 else 0.0
+
+            # Speed anomaly
+            speeds = [float(r.get("speed_knots", r.get("speed", 0.0))) for r in vessel_recs]
+            speed_anomaly = 0.0
+            if speeds:
+                min_s, max_s = min(speeds), max(speeds)
+                if min_s < 2.0 and max_s > 8.0:
+                    speed_anomaly = 0.75
+                elif max_s > 18.0:
+                    speed_anomaly = 0.50
+
+            # Draft anomaly
+            drafts = [float(r.get("draft_meters", r.get("draft", 0.0))) for r in vessel_recs]
+            max_draft = max(drafts) if drafts else 0.0
+            draft_anomaly = min(1.0, max_draft / 15.0) if vtype == "tanker" else 0.10
+
+            route_anomaly = 0.40 if vtype == "tanker" else 0.15
+
+            # Provenance fallback defaults for synthetic candidates
+            if data.get("provenance") == "synthetic":
+                if mmsi == "111111111":
+                    gap_score, speed_anomaly, route_anomaly, draft_anomaly = 0.85, 0.60, 0.40, 0.70
+                elif mmsi == "222222222":
+                    gap_score, speed_anomaly, route_anomaly, draft_anomaly = 0.10, 0.20, 0.15, 0.10
+                elif mmsi == "333333333":
+                    gap_score, speed_anomaly, route_anomaly, draft_anomaly = 0.30, 0.40, 0.50, 0.35
+
+            spill_lat = (min_lat + max_lat) / 2.0
+            spill_lon = (min_lon + max_lon) / 2.0
+            dlat = (lat - spill_lat) * 111.0
+            dlon = (lon - spill_lon) * 111.0 * math.cos(math.radians(spill_lat))
+            dist_km = float(math.hypot(dlat, dlon))
+
+            cands.append({
                 "mmsi": mmsi,
-                "vessel_name": r.get("vessel_name", "UNKNOWN"),
+                "vessel_name": last_r.get("vessel_name", "UNKNOWN"),
                 "vessel_type": vtype,
-                "position_at_event": {"lat": lat, "lon": lon, "time": r.get("time")},
-                "anomaly_breakdown": {"gap": 0.0, "speed": 0.0, "draft": 0.0},
-                "distance_to_spill_km": 10.0,
+                "operator": last_r.get("operator", "Unknown"),
+                "flag": last_r.get("flag", "XX"),
+                "destination": last_r.get("destination", "UNKNOWN"),
+                "position_at_event": {"lat": lat, "lon": lon, "time": closest_r.get("time")},
+                "anomaly_breakdown": {
+                    "blackout": round(gap_score, 2),
+                    "gap": round(gap_score, 2),
+                    "speed": round(speed_anomaly, 2),
+                    "route": round(route_anomaly, 2),
+                    "draft": round(draft_anomaly, 2),
+                },
+                "distance_to_spill_km": round(dist_km, 2),
                 "lat": lat,
                 "lon": lon,
-            }
-        cands = list(by_mmsi.values())
+            })
+
         cands.sort(key=lambda c: c["distance_to_spill_km"])
         return {"status": "success", "data": cands}
     except Exception as e:

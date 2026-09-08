@@ -6,7 +6,7 @@
 
 import { create } from "zustand";
 
-export type TabId = "input" | "pipeline" | "shortlist" | "results";
+export type TabId = "input" | "pipeline" | "suspects" | "output";
 
 export type LayerId = 
   | "slick" 

@@ -31,9 +31,9 @@ export default function SlickLayer({ slick }: Props) {
         <div style={{ fontSize: "12px", color: "#0b1e3d" }}>
           <strong>Observed Slick</strong>
           <br />
-          Area: {slick.area_km2.toFixed(2)} km²
+          Area: {(slick.area_km2 == null || isNaN(slick.area_km2)) ? '—' : `${slick.area_km2.toFixed(2)} km²`}
           <br />
-          Age est.: {slick.age_estimate_hours.toFixed(1)} h
+          Age est.: {(slick.age_estimate_hours == null || isNaN(slick.age_estimate_hours)) ? '—' : `${slick.age_estimate_hours.toFixed(1)} h`}
           {!slick.weathering_validity && (
             <><br /><span style={{ color: "#f04438" }}>⚠ Age &gt;72h — low confidence</span></>
           )}

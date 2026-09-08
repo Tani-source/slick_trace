@@ -12,9 +12,15 @@ _lock = threading.Lock()
 
 def _safe_write(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
-    os.replace(tmp, path)
+    # Use pid+thread id so concurrent writes to the same path never share a tmp file.
+    unique = f"{os.getpid()}_{threading.get_ident()}"
+    tmp = path.parent / f".{path.name}.{unique}.tmp"
+    try:
+        tmp.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+        os.replace(tmp, path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _read_json(path: Path) -> dict | None:

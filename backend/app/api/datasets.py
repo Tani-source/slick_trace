@@ -1,4 +1,7 @@
 from __future__ import annotations
+import logging
+
+_log = logging.getLogger(__name__)
 
 import io
 import json
@@ -175,10 +178,15 @@ _VALIDATORS = {
 }
 
 
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+
+# ...
+
 @router.post("/{dataset_type}")
 async def upload_dataset(
     dataset_type: DatasetType,
     file: UploadFile = File(...),
+    run_id: str | None = Query(None),
     provenance: str = Form("illustrative"),
     bounds: str | None = Form(None),
     wind_speed_ms: float | None = Form(None),
@@ -187,13 +195,18 @@ async def upload_dataset(
         raise HTTPException(status_code=404, detail=f"unknown dataset type {dataset_type}")
 
     data = await file.read()
+    # DEBUG — temporary, remove after confirming root cause
+    _log.warning(
+        "[DEBUG upload] type=%s filename=%r size=%d first16=%r content_type=%r",
+        dataset_type, file.filename, len(data), data[:16], file.content_type,
+    )
     validator = _VALIDATORS[dataset_type]
     if dataset_type == "sar":
         ok, reason, info = validator(data, bounds)
     else:
         ok, reason, info = validator(data)
 
-    run_id = uuid.uuid4().hex[:12]
+    run_id = run_id or uuid.uuid4().hex[:12]
     run_store.create_run(run_id)
 
     record: dict = {

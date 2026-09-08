@@ -11,7 +11,7 @@ import {
   getPipelineStatus,
   getResults,
   getShortlist,
-  getSlick,
+  getSlickPolygon,
   runPipeline,
   uploadDataset,
 } from '../api/client';
@@ -38,6 +38,7 @@ interface PipelineState {
   setDataset: (type: DatasetType, info: DatasetInfo) => void;
   upload: (type: DatasetType, file: File, provenance: string) => Promise<void>;
   startPipeline: () => Promise<void>;
+  startSimulation: () => Promise<void>;
   pollStatus: () => Promise<void>;
   startPolling: (runId: string) => () => void;
   refreshOutputs: () => Promise<void>;
@@ -64,8 +65,9 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
       runId: state.runId ?? (info.status === 'uploaded' ? (get().runId ?? null) : state.runId),
     })),
 
-  upload: async (type, file, provenance) => {
-    const result = await uploadDataset(type, file, provenance);
+  upload: async (type, file, _provenance) => {
+    const currentRunId = get().runId;
+    const result = await uploadDataset(type, file, currentRunId || undefined);
     if (result.status === 'uploaded') {
       set({ runId: result.run_id });
       get().setDataset(type, {
@@ -85,6 +87,20 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     set({ runningPipeline: true, pollError: null });
     try {
       await runPipeline(runId);
+      await get().pollStatus();
+      await get().refreshOutputs();
+    } finally {
+      set({ runningPipeline: false });
+    }
+  },
+
+  startSimulation: async () => {
+    const runId = get().runId;
+    if (!runId) return;
+    set({ runningPipeline: true, pollError: null });
+    try {
+      const { runSimulate } = await import('../api/client');
+      await runSimulate(runId);
       await get().pollStatus();
       await get().refreshOutputs();
     } finally {
@@ -132,7 +148,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     const runId = get().runId;
     if (!runId) return;
     try {
-      const slick = await getSlick(runId);
+      const slick = await getSlickPolygon(runId);
       set({ slick });
     } catch {
       /* stage not complete yet */

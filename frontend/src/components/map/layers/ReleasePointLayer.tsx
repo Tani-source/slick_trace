@@ -2,18 +2,20 @@ import { useEffect } from 'react';
 import { useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { usePipelineStore } from '../../../state/pipelineStore';
-import { useUIStore } from '../../../state/uiStore';
+import { useUiStore } from '../../../state/uiStore';
 
 export default function ReleasePointLayer() {
   const map = useMap();
   const shortlist = usePipelineStore((s) => s.shortlist);
-  const layerVisible = useUIStore((s) => s.layerToggles.releasePoints);
+  const layerVisible = useUiStore((s) => s.activeLayers.has('releasePoints'));
 
   useEffect(() => {
     if (!shortlist || !layerVisible) return;
     const layers: L.Layer[] = [];
     shortlist.candidates.forEach((c) => {
-      c.candidate_release_points.forEach((pt) => {
+      // candidate_release_points is optional — not all pipeline runs populate it
+      const releasePoints = Array.isArray(c.candidate_release_points) ? c.candidate_release_points : [];
+      releasePoints.forEach((pt) => {
         const marker = L.circleMarker([pt.lat, pt.lon], {
           radius: 4,
           color: '#38BDF8',

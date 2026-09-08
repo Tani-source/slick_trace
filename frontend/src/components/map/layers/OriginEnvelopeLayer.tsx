@@ -30,9 +30,9 @@ export default function OriginEnvelopeLayer({ envelope }: Props) {
         <div style={{ fontSize: "12px", color: "#0b1e3d" }}>
           <strong>Origin Envelope</strong>
           <br />
-          Area: {envelope.area_km2.toFixed(1)} km²
+          Area: {(envelope.area_km2 ?? 0).toFixed(1)} km²
           <br />
-          Window: {envelope.time_window_hours.toFixed(1)}h
+          Window: {(envelope.time_window_hours ?? 0).toFixed(1)}h
           {envelope.fallback_used && (
             <><br /><span style={{ color: "#f04438" }}>⚠ Numpy Fallback</span></>
           )}
