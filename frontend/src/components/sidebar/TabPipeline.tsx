@@ -1,6 +1,40 @@
 import { usePipelineStore } from '../../state/pipelineStore';
-import { useUIStore } from '../../../state/uiStore';
-import { STAGE_DESCRIPTIONS, STAGE_LABELS, STAGE_ICONS, StageName, StageStatus, PipelineStage } from '../../types/contracts';
+import type { StageStatus, StageInfo } from '../../types/contracts';
+
+export type StageName =
+  | 'perception'
+  | 'ais_ingestion'
+  | 'candidate_filtering'
+  | 'anomaly_scoring'
+  | 'drift_simulation'
+  | 'verification_matching';
+
+export const STAGE_LABELS: Record<StageName, string> = {
+  perception: 'SAR Perception',
+  ais_ingestion: 'AIS Ingestion',
+  candidate_filtering: 'Candidate Filtering',
+  anomaly_scoring: 'Anomaly Scoring',
+  drift_simulation: 'Forward Drift Simulation',
+  verification_matching: 'Footprint Verification',
+};
+
+export const STAGE_DESCRIPTIONS: Record<StageName, string> = {
+  perception: 'Detect and segment oil slick from Sentinel-1 SAR imagery.',
+  ais_ingestion: 'Query MarineCadastre AIS within spatio-temporal origin window.',
+  candidate_filtering: 'Filter vessels by vessel type and proximity.',
+  anomaly_scoring: 'Score behavior anomalies (blackout window, speed deviations).',
+  drift_simulation: 'Simulate forward Lagrangian particle advection for candidates.',
+  verification_matching: 'Compute spatial IoU and rank suspects by physical match.',
+};
+
+export const STAGE_ICONS: Record<StageName, string> = {
+  perception: '🛰️',
+  ais_ingestion: '📡',
+  candidate_filtering: '🚢',
+  anomaly_scoring: '⚠️',
+  drift_simulation: '🌊',
+  verification_matching: '🎯',
+};
 
 const ALL_STAGES: StageName[] = [
   'perception',
@@ -15,7 +49,7 @@ export default function TabPipeline() {
   const pipelineStatus = usePipelineStore((s) => s.pipelineStatus);
   const slick = usePipelineStore((s) => s.slick);
 
-  const getStageStatus = (name: StageName): PipelineStage | null => {
+  const getStageStatus = (name: StageName): StageInfo | null => {
     return pipelineStatus?.stages.find((s) => s.name === name) || null;
   };
 

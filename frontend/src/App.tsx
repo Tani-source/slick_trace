@@ -35,16 +35,6 @@ function App() {
     };
   }, [setConnectionLost]);
 
-const STAGE_LABELS: Record<string, string> = {
-  perception: 'SAR Perception',
-  ais_ingestion: 'AIS Ingestion',
-  candidate_filtering: 'Candidate Filter',
-  anomaly_scoring: 'Anomaly Scoring',
-  drift_simulation: 'Drift Simulation',
-  verification_matching: 'Verification & Match',
-};
-
-function TabInput() {
   return (
     <div className="h-full flex flex-col">
       <div className="flex flex-1 overflow-hidden">
