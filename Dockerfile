@@ -2,11 +2,11 @@
 # Exposes port 7860 (Hugging Face Spaces default) or uses $PORT dynamically.
 
 # --- Stage 1: Build Vite React Frontend ---
-FROM node:20-alpine AS frontend-builder
+FROM node:20-slim AS frontend-builder
 WORKDIR /app/frontend
 
-COPY frontend/package.json ./
-RUN npm install
+COPY frontend/package*.json ./
+RUN npm install --legacy-peer-deps
 
 COPY frontend/ ./
 RUN npm run build
@@ -22,6 +22,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libgomp1 \
+    libgeos-dev \
+    git \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
