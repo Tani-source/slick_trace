@@ -10,16 +10,26 @@ import numpy as np
 import datetime
 from concurrent.futures import ProcessPoolExecutor, TimeoutError as FuturesTimeoutError
 
+import os
+
 logger = logging.getLogger(__name__)
 
-# Determine if OpenDrift is available
-try:
-    import opendrift
-    from opendrift.models.openoil import OpenOil
-    OPENDRIFT_AVAILABLE = True
-except ImportError:
+# OpenDrift (OpenOil) loads GSHHG global basemaps and the NOAA ADIOS oil database,
+# consuming >1.5GB of RAM. In memory-constrained environments (such as Render's 512MB free tier),
+# allocating OpenOil triggers the kernel OOM killer (SIGKILL) and crashes the server (502 Bad Gateway).
+# Therefore, we safely use the documented numpy advection engine (rules.md §3.1) on Render.
+_disable_opendrift = os.getenv("DISABLE_OPENDRIFT", "").lower() in ("1", "true") or bool(os.getenv("RENDER"))
+if _disable_opendrift:
     OPENDRIFT_AVAILABLE = False
-    logger.warning("OpenDrift not found. Falling back to numpy single-step advection.")
+    logger.info("Memory-constrained environment detected (Render) — using numpy advection engine (rules.md §3.1).")
+else:
+    try:
+        import opendrift
+        from opendrift.models.openoil import OpenOil
+        OPENDRIFT_AVAILABLE = True
+    except ImportError:
+        OPENDRIFT_AVAILABLE = False
+        logger.warning("OpenDrift not found. Falling back to numpy single-step advection.")
 
 
 def _run_opendrift_backward(seed_points: list[list[float]], hours: float, current_path: str | None, wind_path: str | None, time_iso: str | None = None) -> list[list[float]]:
@@ -142,14 +152,9 @@ def _numpy_forward_fallback(release_point: list[float], hours: float) -> list[li
 def run_backward(seed_points: list[list[float]], hours: float, current_path: str | None = None, wind_path: str | None = None, time_iso: str | None = None) -> dict:
     if OPENDRIFT_AVAILABLE:
         try:
-            with ProcessPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(_run_opendrift_backward, seed_points, hours, current_path, wind_path, time_iso)
-                points = future.result(timeout=60)
+            points = _run_opendrift_backward(seed_points, hours, current_path, wind_path, time_iso)
             logger.info("OpenDrift backward simulation succeeded.")
             return {"points": points, "fallback_used": False}
-        except FuturesTimeoutError:
-            logger.error("OpenDrift backward simulation timed out after 60s. Returning failure.")
-            return {"status": "failed", "reason": "simulation exceeded time budget"}
         except Exception as e:
             logger.error(f"OpenDrift backward simulation failed: {e}. Using numpy fallback.")
             
@@ -170,14 +175,9 @@ def run_forward(
 ) -> dict:
     if OPENDRIFT_AVAILABLE:
         try:
-            with ProcessPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(_run_opendrift_forward, release_point, hours, current_path, wind_path, time_iso)
-                poly = future.result(timeout=60)
+            poly = _run_opendrift_forward(release_point, hours, current_path, wind_path, time_iso)
             logger.info("OpenDrift forward simulation succeeded.")
             return {"polygon": poly, "fallback_used": False}
-        except FuturesTimeoutError:
-            logger.error("OpenDrift forward simulation timed out after 60s. Returning failure.")
-            return {"status": "failed", "reason": "simulation exceeded time budget"}
         except Exception as e:
             logger.error(f"OpenDrift forward simulation failed: {e}. Using numpy fallback.")
 

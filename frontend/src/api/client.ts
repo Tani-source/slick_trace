@@ -76,6 +76,14 @@ export async function uploadDataset(
   return fetchJSON<DatasetUploadResponse>(url, { method: "POST", body: form });
 }
 
+export async function loadDemoScenario(): Promise<{
+  run_id: string;
+  status: string;
+  datasets: Record<DatasetType, any>;
+}> {
+  return fetchJSON(`${BASE}/datasets/load-demo`, { method: "POST" });
+}
+
 // ── Pipeline control ───────────────────────────────────────────────────────
 
 export async function runPipeline(runId: string): Promise<{ run_id: string; message: string }> {

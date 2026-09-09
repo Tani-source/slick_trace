@@ -38,6 +38,7 @@ interface PipelineState {
   setRunId: (runId: string) => void;
   setDataset: (type: DatasetType, info: DatasetInfo) => void;
   upload: (type: DatasetType, file: File, provenance: string) => Promise<void>;
+  loadDemo: () => Promise<void>;
   startPipeline: () => Promise<void>;
   startSimulation: () => Promise<void>;
   pollStatus: () => Promise<void>;
@@ -79,6 +80,33 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
         bbox: result.bbox ?? null,
         date_range: result.date_range ?? null,
       });
+    }
+  },
+
+  loadDemo: async () => {
+    set({ runningPipeline: true, pollError: null });
+    try {
+      const { loadDemoScenario } = await import('../api/client');
+      const res = await loadDemoScenario();
+      if (res && res.run_id) {
+        set({
+          runId: res.run_id,
+          datasets: {
+            sar: res.datasets.sar || { status: 'uploaded', file_name: 'demo_scene.tif', provenance: 'illustrative', size_bytes: 2188382 },
+            ais: res.datasets.ais || { status: 'uploaded', file_name: 'tracks.csv', provenance: 'illustrative', size_bytes: 2288349 },
+            wind: res.datasets.wind || { status: 'uploaded', file_name: 'wind.nc', provenance: 'illustrative', size_bytes: 776296 },
+            current: res.datasets.current || { status: 'uploaded', file_name: 'currents.nc', provenance: 'illustrative', size_bytes: 776328 },
+          },
+          pipelineStatus: null,
+          slick: null,
+          shortlist: null,
+          results: null,
+        });
+      }
+    } catch (err: any) {
+      set({ pollError: err?.message || 'Failed to load demo scenario' });
+    } finally {
+      set({ runningPipeline: false });
     }
   },
 
@@ -145,7 +173,18 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
         }
       }
     } catch (err: any) {
-      set({ pollError: err?.message || 'Failed to start pipeline' });
+      if (err?.status === 404 || err?.message?.includes('404')) {
+        set({
+          pollError: 'Active run has expired or server restarted. Please click "⚡ Load Demo Scenario" or re-upload datasets to proceed.',
+          runId: null,
+          datasets: EMPTY_DATASETS,
+        });
+        try {
+          useUiStore.getState().setActiveTab('input');
+        } catch {}
+      } else {
+        set({ pollError: err?.message || 'Failed to start pipeline' });
+      }
     } finally {
       set({ runningPipeline: false });
     }

@@ -8,7 +8,7 @@ import json
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 
 from ..config import DATASET_TYPES
 from ..services import run_store
@@ -178,9 +178,55 @@ _VALIDATORS = {
 }
 
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from pathlib import Path
 
-# ...
+@router.post("/load-demo")
+async def load_demo_dataset() -> dict:
+    """
+    Load the 4 synthetic benchmark datasets (SAR, AIS, Wind, Current) into a new run_id.
+    Enables instant 1-click evaluation of the pipeline.
+    """
+    new_run_id = uuid.uuid4().hex[:12]
+    run_store.create_run(new_run_id)
+
+    synthetic_dir = Path(__file__).resolve().parents[2] / "data" / "synthetic"
+    fixtures = [
+        ("sar", synthetic_dir / "sar" / "demo_scene.tif", "demo_scene.tif"),
+        ("ais", synthetic_dir / "ais" / "tracks.csv", "tracks.csv"),
+        ("wind", synthetic_dir / "forcing" / "wind.nc", "wind.nc"),
+        ("current", synthetic_dir / "forcing" / "currents.nc", "currents.nc"),
+    ]
+
+    loaded = {}
+    for dtype, fpath, fname in fixtures:
+        if fpath.exists():
+            data = fpath.read_bytes()
+            run_store.save_upload_bytes(new_run_id, dtype, fname, data)
+            validator = _VALIDATORS[dtype]
+            if dtype == "sar":
+                ok, reason, info = validator(data, None)
+            else:
+                ok, reason, info = validator(data)
+            record = {
+                "status": "uploaded",
+                "provenance": "illustrative",
+                "file_name": fname,
+                "size_bytes": len(data),
+                "uploaded_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+            }
+            record.update(info)
+            run_store.record_upload(new_run_id, dtype, record)
+            loaded[dtype] = {
+                "status": "uploaded",
+                "provenance": "illustrative",
+                "file_name": fname,
+                "size_bytes": len(data),
+                "bbox": info.get("bbox"),
+                "date_range": info.get("date_range"),
+            }
+
+    return {"run_id": new_run_id, "status": "ready", "datasets": loaded}
+
 
 @router.post("/{dataset_type}")
 async def upload_dataset(

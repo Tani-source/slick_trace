@@ -4,7 +4,7 @@ import { useUiStore } from '../../state/uiStore';
 import type { DatasetType } from '../../types/contracts';
 
 export default function InputTab() {
-  const { datasets, runId, upload, startPipeline, runningPipeline, pipelineStatus, pollError } = usePipelineStore();
+  const { datasets, runId, upload, loadDemo, startPipeline, runningPipeline, pipelineStatus, pollError } = usePipelineStore();
   const setActiveTab = useUiStore((s) => s.setActiveTab);
   const [uploadingType, setUploadingType] = useState<DatasetType | null>(null);
   const [dragOverType, setDragOverType] = useState<DatasetType | null>(null);
@@ -68,20 +68,31 @@ export default function InputTab() {
           </p>
         </div>
 
-        <div style={{ textAlign: 'right' }}>
+        <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
           {runId && (
             <div style={{ fontSize: '11px', color: 'var(--brass-bright)', marginBottom: '6px', fontFamily: 'monospace' }}>
               ACTIVE RUN: <b>{runId}</b>
             </div>
           )}
-          <button
-            className="st-btn primary"
-            disabled={runningPipeline || uploadedCount === 0}
-            onClick={() => startPipeline()}
-            style={{ padding: '8px 16px', fontSize: '12px' }}
-          >
-            {runningPipeline ? 'Running Stages 0–4...' : 'Run Analysis Pipeline (Stages 0–4)'}
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              className="st-btn"
+              disabled={runningPipeline}
+              onClick={() => loadDemo()}
+              style={{ padding: '8px 14px', fontSize: '12px', background: 'var(--panel-2)', border: '1px solid var(--line-strong)' }}
+              title="Load pre-packaged benchmark dataset (demo_scene.tif, tracks.csv, wind.nc, currents.nc)"
+            >
+              ⚡ Load Demo Scenario
+            </button>
+            <button
+              className="st-btn primary"
+              disabled={runningPipeline || uploadedCount === 0}
+              onClick={() => startPipeline()}
+              style={{ padding: '8px 16px', fontSize: '12px' }}
+            >
+              {runningPipeline ? 'Running Stages 0–4...' : 'Run Analysis Pipeline (Stages 0–4)'}
+            </button>
+          </div>
         </div>
       </div>
 
