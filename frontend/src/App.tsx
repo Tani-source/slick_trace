@@ -14,7 +14,9 @@ export default function App() {
   const activeTab = useUiStore((s) => s.activeTab);
   const { connectionLost, setConnectionLost, datasets, pipelineStatus, runPipeline } = usePipelineStore();
   
-  const hasData = Object.values(datasets).some(d => d.status === 'ready');
+  // hasData unlocks the pipeline tab execution view
+  // It is true if ANY dataset is uploaded, OR if the pipeline status has already been fetched.
+  const hasData = Object.values(datasets).some(d => d.status === 'uploaded') || !!pipelineStatus;
   
   const simulated = !!(pipelineStatus && Array.isArray(pipelineStatus.stages) && pipelineStatus.stages.find(s => s.name === 'drift_simulation' && s.status === 'done'));
   const simulating = !!(pipelineStatus && Array.isArray(pipelineStatus.stages) && pipelineStatus.stages.find(s => s.name === 'drift_simulation' && s.status === 'running'));
