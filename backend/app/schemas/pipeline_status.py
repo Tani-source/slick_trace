@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 StageName = Literal[
     "perception",
+    "backward_drift",
     "ais_ingestion",
     "candidate_filtering",
     "anomaly_scoring",
@@ -16,6 +17,7 @@ StageStatusValue = Literal["pending", "running", "done", "failed"]
 
 STAGE_NAMES: list[StageName] = [
     "perception",
+    "backward_drift",
     "ais_ingestion",
     "candidate_filtering",
     "anomaly_scoring",

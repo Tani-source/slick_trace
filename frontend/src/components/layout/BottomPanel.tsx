@@ -154,7 +154,7 @@ export default function BottomPanel() {
           >
             {simulating
               ? 'Processing Pipeline...'
-              : !shortlist
+              : !shortlist || shortlist.candidates.length === 0
               ? 'Run Analysis Pipeline (0–4)'
               : simulated
               ? 'Re-run Simulation (5–6)'

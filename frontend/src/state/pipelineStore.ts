@@ -15,6 +15,7 @@ import {
   runPipeline,
   uploadDataset,
 } from '../api/client';
+import { useUiStore } from './uiStore';
 
 const EMPTY_DATASETS: Record<DatasetType, DatasetInfo> = {
   wind: { status: 'not_uploaded' },
@@ -85,10 +86,66 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     const runId = get().runId;
     if (!runId) return;
     set({ runningPipeline: true, pollError: null });
+    // Switch to Pipeline tab immediately so the user sees live stage progression
+    try {
+      useUiStore.getState().setActiveTab('pipeline');
+    } catch {
+      /* ignore in tests where uiStore might not be mounted */
+    }
+
     try {
       await runPipeline(runId);
-      await get().pollStatus();
-      await get().refreshOutputs();
+      // Continuous polling loop until completion or failure
+      let completed = false;
+      let retries = 0;
+      while (!completed) {
+        await new Promise((r) => setTimeout(r, 1000));
+        try {
+          const status = await getPipelineStatus(runId);
+          set({ pipelineStatus: status, connectionLost: false });
+          retries = 0;
+
+          const failedStage = status.stages.find((s) => s.status === 'failed');
+          if (failedStage) {
+            set({ pollError: `Stage '${failedStage.name}' failed: ${failedStage.detail || 'Internal error'}` });
+            completed = true;
+            break;
+          }
+
+          // Refresh slick polygon as perception completes
+          const perceptionDone = status.stages.find((s) => s.name === 'perception')?.status === 'done';
+          if (perceptionDone && !get().slick) {
+            try {
+              const slick = await getSlickPolygon(runId);
+              set({ slick });
+            } catch {
+              /* not ready yet */
+            }
+          }
+
+          // Check if Stages 0-4 are completed (anomaly_scoring is the terminal stage of stages 0-4)
+          const isDone = status.stages.find((s) => s.name === 'anomaly_scoring')?.status === 'done';
+          if (isDone) {
+            completed = true;
+            await get().refreshOutputs();
+            try {
+              useUiStore.getState().setActiveTab('suspects');
+            } catch {
+              /* ignore */
+            }
+            break;
+          }
+        } catch {
+          retries += 1;
+          if (retries >= 5) {
+            set({ pollError: 'Connection lost while polling pipeline status' });
+            completed = true;
+            break;
+          }
+        }
+      }
+    } catch (err: any) {
+      set({ pollError: err?.message || 'Failed to start pipeline' });
     } finally {
       set({ runningPipeline: false });
     }
@@ -99,10 +156,52 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     if (!runId) return;
     set({ runningPipeline: true, pollError: null });
     try {
+      useUiStore.getState().setActiveTab('pipeline');
+    } catch {
+      /* ignore */
+    }
+
+    try {
       const { runSimulate } = await import('../api/client');
       await runSimulate(runId);
-      await get().pollStatus();
-      await get().refreshOutputs();
+      let completed = false;
+      let retries = 0;
+      while (!completed) {
+        await new Promise((r) => setTimeout(r, 1000));
+        try {
+          const status = await getPipelineStatus(runId);
+          set({ pipelineStatus: status, connectionLost: false });
+          retries = 0;
+
+          const failedStage = status.stages.find((s) => s.status === 'failed');
+          if (failedStage) {
+            set({ pollError: `Stage '${failedStage.name}' failed: ${failedStage.detail || 'Internal error'}` });
+            completed = true;
+            break;
+          }
+
+          const isDone = status.stages.find((s) => s.name === 'verification_matching')?.status === 'done';
+          if (isDone) {
+            completed = true;
+            await get().refreshOutputs();
+            try {
+              useUiStore.getState().setActiveTab('output');
+            } catch {
+              /* ignore */
+            }
+            break;
+          }
+        } catch {
+          retries += 1;
+          if (retries >= 5) {
+            set({ pollError: 'Connection lost while polling simulation status' });
+            completed = true;
+            break;
+          }
+        }
+      }
+    } catch (err: any) {
+      set({ pollError: err?.message || 'Failed to start simulation' });
     } finally {
       set({ runningPipeline: false });
     }

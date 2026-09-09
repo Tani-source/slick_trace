@@ -1,9 +1,11 @@
 import { useRef, useState } from 'react';
 import { usePipelineStore } from '../../state/pipelineStore';
+import { useUiStore } from '../../state/uiStore';
 import type { DatasetType } from '../../types/contracts';
 
 export default function InputTab() {
-  const { datasets, runId, upload, startPipeline, runningPipeline, pipelineStatus } = usePipelineStore();
+  const { datasets, runId, upload, startPipeline, runningPipeline, pipelineStatus, pollError } = usePipelineStore();
+  const setActiveTab = useUiStore((s) => s.setActiveTab);
   const [uploadingType, setUploadingType] = useState<DatasetType | null>(null);
   const [dragOverType, setDragOverType] = useState<DatasetType | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -54,6 +56,7 @@ export default function InputTab() {
   };
 
   const uploadedCount = Object.values(datasets).filter((d) => d.status === 'uploaded').length;
+  const failedStage = pipelineStatus?.stages?.find((s) => s.status === 'failed');
 
   return (
     <div className="st-content-scroll">
@@ -88,12 +91,63 @@ export default function InputTab() {
         </div>
       )}
 
-      {runningPipeline && pipelineStatus && (
-        <div style={{ background: 'var(--panel-2)', border: '1px solid var(--chart-teal)', padding: '12px 16px', borderRadius: '4px', marginBottom: '16px', fontSize: '12px' }}>
-          <div style={{ fontWeight: 600, color: 'var(--chart-teal-bright)', marginBottom: '4px' }}>Pipeline Running in Background</div>
-          <div style={{ color: 'var(--text-faint)' }}>
-            Active Stage: {pipelineStatus.stages.find(s => s.status === 'running')?.name || 'processing'}
+      {(failedStage || pollError) && (
+        <div
+          style={{
+            background: 'rgba(193,81,47,0.18)',
+            border: '1px solid var(--rust-bright)',
+            color: 'var(--rust-bright)',
+            padding: '12px 16px',
+            borderRadius: '4px',
+            marginBottom: '16px',
+            fontSize: '12px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '12px',
+          }}
+        >
+          <div>
+            <b>⚠ Pipeline Failed: </b>
+            {failedStage ? `Stage '${failedStage.name}' failed — ${failedStage.detail}` : pollError}
           </div>
+          <button
+            className="st-btn"
+            style={{ fontSize: '11px', padding: '4px 10px', background: 'var(--panel)', color: 'var(--text)', whiteSpace: 'nowrap' }}
+            onClick={() => setActiveTab('pipeline')}
+          >
+            View in Pipeline Tab →
+          </button>
+        </div>
+      )}
+
+      {runningPipeline && (
+        <div
+          style={{
+            background: 'var(--panel-2)',
+            border: '1px solid var(--chart-teal)',
+            padding: '12px 16px',
+            borderRadius: '4px',
+            marginBottom: '16px',
+            fontSize: '12px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 600, color: 'var(--chart-teal-bright)', marginBottom: '4px' }}>Pipeline Running in Background</div>
+            <div style={{ color: 'var(--text-faint)' }}>
+              Active Stage: {pipelineStatus?.stages?.find((s) => s.status === 'running')?.name || 'executing stages…'}
+            </div>
+          </div>
+          <button
+            className="st-btn"
+            style={{ fontSize: '11px', padding: '4px 10px', whiteSpace: 'nowrap' }}
+            onClick={() => setActiveTab('pipeline')}
+          >
+            View Execution Progress →
+          </button>
         </div>
       )}
 
@@ -109,6 +163,7 @@ export default function InputTab() {
               <input
                 type="file"
                 ref={fileInputRefs[ds.type]}
+                accept={ds.accept}
                 style={{ display: 'none' }}
                 onChange={(e) => {
                   if (e.target.files && e.target.files.length > 0) {

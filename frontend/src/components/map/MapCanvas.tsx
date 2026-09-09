@@ -34,6 +34,7 @@ function MapController() {
   }, [slickPolygon, map]);
 
   useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return;
     const container = map.getContainer();
     let resizeTimer: number;
     const resizeObserver = new ResizeObserver(() => {

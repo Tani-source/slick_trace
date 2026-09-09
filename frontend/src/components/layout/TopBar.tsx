@@ -3,10 +3,15 @@ import { usePipelineStore } from '../../state/pipelineStore';
 
 export default function TopBar() {
   const activeTab = useUiStore((s) => s.activeTab);
-  const status = usePipelineStore((s) => s.status);
-  
+  const runningPipeline = usePipelineStore((s) => s.runningPipeline);
+  const pipelineStatus = usePipelineStore((s) => s.pipelineStatus);
+  const results = usePipelineStore((s) => s.results);
+
+  const hasFailed = !!pipelineStatus?.stages?.some((s) => s.status === 'failed');
+  const isResolved = results !== null;
+  const isOk = !hasFailed && (isResolved || (pipelineStatus?.stages?.length ? pipelineStatus.stages.every((s) => s.status === 'done') : false));
+
   const crumbName = activeTab.charAt(0).toUpperCase() + activeTab.slice(1);
-  const isOk = status === 'completed';
 
   return (
     <div className="st-topbar">
@@ -14,8 +19,14 @@ export default function TopBar() {
         Workspace / <b>{crumbName}</b>
       </div>
       <div className="st-case-pill">
-        <span className={`st-dot ${isOk ? 'ok' : ''}`}></span>
-        {status === 'running' ? 'Pipeline active' : status === 'completed' ? 'Case resolved' : 'Draft case'}
+        <span className={`st-dot ${isOk ? 'ok' : hasFailed ? 'failed' : ''}`}></span>
+        {runningPipeline
+          ? 'Pipeline active'
+          : hasFailed
+          ? 'Pipeline error'
+          : isResolved
+          ? 'Case resolved'
+          : 'Draft case'}
       </div>
     </div>
   );

@@ -40,7 +40,7 @@ async def run_pipeline(request: RunRequest, background: BackgroundTasks) -> dict
     if not _mark_active(request.run_id):
         raise HTTPException(status_code=409, detail="pipeline already running for this run_id")
 
-    async def _run_and_release() -> None:
+    def _run_and_release() -> None:
         try:
             orchestrator.run_pipeline(request.run_id)
         finally:
@@ -57,7 +57,7 @@ async def simulate_pipeline(request: RunRequest, background: BackgroundTasks) ->
     if not _mark_active(request.run_id):
         raise HTTPException(status_code=409, detail="simulation already running for this run_id")
 
-    async def _simulate_and_release() -> None:
+    def _simulate_and_release() -> None:
         try:
             orchestrator.simulate_pipeline(request.run_id)
         finally:

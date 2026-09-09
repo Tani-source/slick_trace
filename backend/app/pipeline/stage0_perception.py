@@ -313,10 +313,16 @@ def _load_sar(sar_path: str) -> np.ndarray:
     if ext in (".tif", ".tiff"):
         try:
             import rasterio
-        except ImportError:
-            raise ValueError("rasterio is required to load .tif SAR files — install it via: pip install rasterio")
-        with rasterio.open(sar_path) as src:
-            return src.read(1).astype(np.float32)
+            with rasterio.open(sar_path) as src:
+                return src.read(1).astype(np.float32)
+        except Exception as rio_err:
+            logger.warning("rasterio failed or unavailable for %s (%s) — trying PIL fallback", sar_path, rio_err)
+            try:
+                from PIL import Image
+                img = Image.open(sar_path)
+                return np.array(img, dtype=np.float32)
+            except Exception as pil_err:
+                raise ValueError(f"Failed to load TIFF image with both rasterio and PIL: {pil_err}")
 
     if ext == ".nc":
         try:
