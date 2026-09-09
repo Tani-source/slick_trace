@@ -6,6 +6,7 @@ import OutputTab from './components/tabs/OutputTab';
 import InputTab from './components/tabs/InputTab';
 import PipelineTab from './components/tabs/PipelineTab';
 import SuspectsTab from './components/tabs/SuspectsTab';
+import { getHealth } from './api/client';
 import { useUiStore } from './state/uiStore';
 import { usePipelineStore } from './state/pipelineStore';
 
@@ -26,12 +27,8 @@ export default function App() {
     let stopped = false;
     const check = async () => {
       try {
-        const res = await fetch('/api/health');
-        if (res.ok) {
-          if (!stopped) setConnectionLost(false);
-        } else if (!stopped) {
-          setConnectionLost(true);
-        }
+        await getHealth();
+        if (!stopped) setConnectionLost(false);
       } catch {
         if (!stopped) setConnectionLost(true);
       }

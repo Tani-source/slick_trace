@@ -15,9 +15,19 @@ import type {
   OilTypeResult,
 } from "../types/contracts";
 
-const BASE = typeof window !== 'undefined' && window.location.origin.includes('http://localhost:5173')
-  ? '/api'
-  : 'http://localhost:8000/api';
+const getBaseUrl = (): string => {
+  if (typeof window === 'undefined') return 'http://localhost:8000/api';
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl) {
+    return envUrl.endsWith('/api') ? envUrl : `${envUrl.replace(/\/$/, '')}/api`;
+  }
+  if (window.location.port === '5173' || !window.location.origin.includes('localhost')) {
+    return '/api';
+  }
+  return 'http://localhost:8000/api';
+};
+
+export const BASE = getBaseUrl();
 
 // ── Generic helpers ────────────────────────────────────────────────────────
 

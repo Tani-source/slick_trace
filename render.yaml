@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: slicktrace
+    env: docker
+    dockerfilePath: Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /api/health
