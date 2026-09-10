@@ -1,62 +1,73 @@
 # architecture.md — SlickTrace
 
-**App flow, folder/file structure, tech stack.**
+**App flow, folder/file structure, tech stack, and deployment topologies.**
 Read `prd.md` first — this document implements it, doesn't redefine it.
 
 ---
 
-## 1. Stack Decision (and why)
+## 1. Stack & Architecture Decisions (and why)
 
-**Frontend: React (Vite + TypeScript) + Leaflet, not Streamlit.**
+**Frontend: React 18 (Vite + TypeScript) + Leaflet, not Streamlit.**
 
-The dashboard spec requires: a collapsible icon-rail sidebar with 4 independently-stateful panels, an always-visible map underneath whichever panel is open, floating circular tool buttons pinned to a fixed screen position, a split/overlay compare mode between two map layers, and a scrubbable timeline with play/pause. Streamlit's layout model (top-to-bottom reruns, no persistent floating elements, no real split-pane map compare) fights all of that. React gets you real component state, a real map library, and a UI that will actually resemble the reference screenshot. This costs more setup time than Streamlit — budget for it explicitly in `phases.md`.
+The dashboard spec requires: a collapsible icon-rail sidebar with 4 independently-stateful panels, an always-visible map underneath whichever panel is open, floating circular tool buttons pinned to a fixed screen position, a split/overlay compare mode between observed and simulated slicks, and an interactive timeline scrubber. Streamlit's layout model (top-to-bottom reruns, no persistent floating elements, no real split-pane map compare) fights all of that. React provides real component state, a real map library, and an operational dark-ocean HUD.
 
-**Backend: Python FastAPI.** Every ML/geospatial library in the PS's tech stack (OpenDrift, U-Net via PyTorch, geopandas, shapely) is Python-only — the backend is not a language choice, it's a constraint. FastAPI over Flask because you need async endpoints for long-running stages (drift simulation) plus a clean OpenAPI contract the frontend can codegen against if time allows.
+**Backend: Python FastAPI (Python 3.11+).** Every ML/geospatial library in the PS's tech stack (OpenDrift, U-Net via PyTorch, GeoPandas, Shapely, Rasterio) is Python-only — the backend is not an arbitrary choice, it is a constraint. FastAPI over Flask provides async endpoints, typed Pydantic validation, OpenAPI documentation, and standard `BackgroundTasks` execution.
 
-**Communication: REST + polling, not WebSockets, for the hackathon build.** `pipeline_status.json` is small and stages are long-running (seconds to low minutes each) — polling every 1–2s is simpler to demo reliably than a WebSocket connection that can silently drop mid-presentation. Note this as a stated tradeoff, not an oversight, if judges ask.
+**Communication: REST + Continuous Polling, not WebSockets.** `pipeline_status.json` is compact and stages execute over seconds to minutes. Continuous client polling (1.0s interval) in `pipelineStore.ts` provides resilient progress tracking, stage-by-stage auto tab-switching, and graceful recovery if cloud containers restart.
 
-**Map library: Leaflet, not Mapbox GL.** No API key/token dependency to manage live during a demo; sufficient for polygon/track/marker layers at the zoom levels this tool needs. Swap to Mapbox GL only if the team wants the reference screenshot's exact visual polish and has time to spare.
+**Map Library: Leaflet + react-leaflet.** No external API key/token dependency to manage during live evaluation; lightweight and reliable for polygon, track, and marker layers.
+
+**Compute & Memory Adaptation (Cloud Free-Tier Resilience):**
+Full OpenDrift (`OpenOil`) loads the global GSHHG shoreline basemap and the NOAA ADIOS oil database (>780k records), consuming ~1.6 GB of RAM. On memory-constrained cloud free tiers (e.g. Render 512 MB RAM), this causes immediate kernel OOM `SIGKILL` (502 Bad Gateway). SlickTrace implements an environment-aware advection engine in `drift_engine.py`:
+- In high-memory environments (local machine, Hugging Face Spaces with 16 GB RAM), full OpenDrift advection runs.
+- When `RENDER=true` or `DISABLE_OPENDRIFT=true`, the engine seamlessly engages a vectorized NumPy advection fallback, setting `"fallback_used": true` in the output contract (transparently disclosed in the UI).
+- CPU-bound pipeline executions in FastAPI use synchronous worker threads (`def`, not `async def`) to avoid blocking the main asyncio event loop.
 
 ---
 
 ## 2. App Flow
 
-### 2.1 High-level sequence (single case, no auth, matches PRD non-goals)
+### 2.1 High-Level Execution Sequence
 
 ```
-1. User opens dashboard → Input tab active by default, map empty with basemap only.
-2. User uploads/attaches: wind data, ocean current data, SAR image (+polygon), AIS data.
-   → Each upload hits POST /api/datasets/{type}, backend validates format,
-     returns status (uploaded/invalid) + inferred bbox/date range.
-3. All 4 present → "Run pipeline" button enables.
-4. User clicks "Run pipeline" → POST /api/pipeline/run
-   → Backend kicks off Stages 0–4 as a background task, returns a run_id immediately.
-5. Frontend polls GET /api/pipeline/status?run_id=... every ~1.5s
-   → Updates Pipeline tab (per-stage progress) + bottom panel (live numbers)
-   → Updates map as each stage's output becomes available:
-       Stage 0 done → slick polygon layer appears
-       Stage 1 done → origin envelope layer appears
-       Stage 2-3 done → AIS candidate tracks appear
-       Stage 4 done → Shortlist tab populates, tracks color-coded by anomaly score
-6. Shortlist ready → Results tab's "Simulate" button enables (was disabled w/ tooltip).
-7. User clicks "Simulate" → POST /api/pipeline/simulate
-   → Backend runs Stage 5 (forward sim, top-N only) + Stage 6 (matching/ranking)
-     as a background task tied to the same run_id.
-8. Frontend polls same status endpoint → stages 5-6 animate → on completion,
-   GET /api/results/{run_id} → Results tab populates with ranked_suspects.json shape.
-9. User can toggle "View simulated map" → split/overlay compare view
-   (observed slick layer vs. simulated footprint layer, same map instance).
-10. Download action → GET /api/results/{run_id}/export → GeoJSON/CSV bundle.
+1. User opens dashboard → Input ("Datasets") tab active by default, map empty with dark basemap.
+2. User provides datasets via either:
+   a) Manual upload: Wind (.nc/.csv), Ocean Current (.nc/.csv), SAR Image (.tif/.png), AIS (.csv)
+      → POST /api/datasets/{type} validates magic bytes/headers, returns status + inferred bbox/date range.
+   b) 1-Click Evaluation: User clicks "⚡ Load Demo Scenario"
+      → POST /api/datasets/load-demo provisions all 4 synthetic benchmark datasets simultaneously.
+3. All 4 datasets uploaded → "Run Pipeline" button activates.
+4. User clicks "Run Pipeline" → POST /api/pipeline/run
+   → Backend starts Stages 0–4 as a background task, returns run_id immediately.
+   → Frontend automatically switches to the Pipeline tab.
+5. Frontend polls GET /api/pipeline/status?run_id=... every 1.0s:
+   → Stage 0 (Perception): U-Net / threshold segmentation → slick polygon rendered on map.
+   → Stage 1 (Backward Drift): Reversed advection → origin envelope rendered on map.
+   → Stage 2 (AIS Ingestion): Ingests AIS traffic within the origin spatiotemporal envelope.
+   → Stage 3 (Candidate Filtering): Filters candidates by corridor, vessel type, and draft.
+   → Stage 4 (Anomaly Scoring): Multi-factor scoring (blackout, speed, route DTW, draft) → shortlist generated.
+   → On Stage 4 completion, frontend automatically switches to the Shortlist tab.
+6. Shortlist ready → Verdict ("Results") tab enables the "Run Simulation" button.
+7. User clicks "Run Simulation" → POST /api/pipeline/simulate
+   → Backend runs Stage 5 (Forward Drift Simulation for top-N shortlist) and Stage 6 (Verification & Matching).
+   → Frontend switches to Pipeline tab and polls status.
+8. On completion of Stage 6:
+   → Frontend automatically switches to the Verdict tab.
+   → GET /api/results/{run_id} populates ranked suspects with MatchScore and AnomalyScore breakdown.
+9. User toggles "Compare Mode" → side-by-side split map comparing observed slick vs. simulated drift footprint.
+10. User clicks "Export Package" → GET /api/results/{run_id}/export downloads full GeoJSON/JSON zip bundle.
 ```
 
-### 2.2 Tier 2 (prototype) flow — deliberately separate
+### 2.2 Tier 2 (Prototype) Flow — Deliberately Isolated
 
-Dark-ship detection and oil-type fingerprinting are **not** part of the sequence above. They are toggles in the UI that, when switched on, call `GET /api/prototype/dark-ship` and `GET /api/prototype/oil-type`, which return a **pre-computed, cached JSON response** for the demo dataset — no live model runs. This is a hard architectural boundary, not just a labeling choice: keeping them on separate endpoints that never touch the live pipeline run_id means there's no risk of a prototype path silently affecting the "live" Tier 1 numbers.
+Dark-ship detection and oil-type fingerprinting are **not** mixed into the live pipeline. They are toggles in the UI that call `GET /api/prototype/dark-ship` and `GET /api/prototype/oil-type`, returning pre-computed benchmark responses. These endpoints do not accept a `run_id` and have zero access to the live pipeline store, guaranteeing that prototype features cannot contaminate live Tier 1 attribution numbers.
 
-### 2.3 State ownership
+### 2.3 State Ownership & Concurrency
 
-- **Backend owns**: pipeline run state, all stage outputs, uploaded files, computed scores. Source of truth is the filesystem/DB keyed by `run_id`, not frontend memory.
-- **Frontend owns**: which sidebar tab is active, which map layers are toggled on, split-view state, timeline scrubber position, sidebar collapsed/expanded. Purely presentational state — never re-derives pipeline results, only fetches and renders them.
+- **Backend owns**: Pipeline run lifecycle, stage outputs, uploaded datasets, computed anomaly and match scores. State is stored on disk under `data/runs/{run_id}/` and `data/uploads/{run_id}/`.
+- **In-flight Deduplication**: `_active_runs` with a thread-safe `threading.Lock()` prevents re-submitting duplicate runs for the same `run_id` (returns HTTP 409).
+- **Frontend owns**: Active sidebar tab, layer visibility toggles, compare-view toggle, highlighted vessel selection, timeline scrubber position, and sidebar collapse state.
+- **Stale-Run Recovery**: If the backend restarts or a `run_id` is evicted (HTTP 404), the frontend resets stale run state and displays an actionable banner prompting the user to reload the demo scenario or re-upload datasets.
 
 ---
 
@@ -64,202 +75,213 @@ Dark-ship detection and oil-type fingerprinting are **not** part of the sequence
 
 ```
 slicktrace/
+├── Dockerfile                          # Multi-stage production container (Node 20 Vite build + Python 3.11 FastAPI)
+├── DEPLOYMENT_GUIDE.md                 # Complete guide for Hugging Face, Render, Vercel, and Cloudflare Tunnel
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                     # FastAPI app entrypoint, CORS, router mounting
+│   │   ├── main.py                     # FastAPI app, CORS, static SPA mount (/), /api/health
+│   │   ├── config.py                   # Paths, thresholds (72h age, top-N, upload limits)
 │   │   ├── api/
-│   │   │   ├── datasets.py             # POST /datasets/{type}, upload + validation
-│   │   │   ├── pipeline.py             # POST /pipeline/run, /pipeline/simulate
-│   │   │   ├── status.py               # GET /pipeline/status
-│   │   │   ├── results.py              # GET /results/{run_id}, /results/{run_id}/export
-│   │   │   └── prototype.py            # GET /prototype/dark-ship, /prototype/oil-type
+│   │   │   ├── datasets.py             # POST /datasets/{type}, POST /datasets/load-demo, validation
+│   │   │   ├── pipeline.py             # POST /pipeline/run, POST /pipeline/simulate
+│   │   │   ├── status.py               # GET /pipeline/status, /pipeline/slick, /pipeline/shortlist
+│   │   │   ├── results.py              # GET /results/{run_id}, GET /results/{run_id}/export
+│   │   │   └── prototype.py            # GET /prototype/dark-ship, GET /prototype/oil-type
 │   │   ├── pipeline/
-│   │   │   ├── stage0_perception.py    # SAR/EO → U-Net → slick polygon
-│   │   │   ├── stage1_backward_drift.py# OpenDrift reversed
-│   │   │   ├── stage2_3_filter.py      # AIS spatiotemporal + vessel-type filter
-│   │   │   ├── stage4_anomaly.py       # blackout/speed/route/draft scoring
-│   │   │   ├── stage5_forward_drift.py # OpenDrift forward, per shortlisted vessel
-│   │   │   ├── stage6_matching.py      # IoU/centroid/orientation → MatchScore, ranking
-│   │   │   ├── stage2b_dark_ship.py    # prototype: CFAR/CNN point detector
-│   │   │   ├── stage5b_oil_type.py     # prototype: spectral oil-type classifier
-│   │   │   └── orchestrator.py         # sequences stages, updates run status, background tasks
+│   │   │   ├── orchestrator.py         # 7-stage coordinator, error catching, background task wrappers
+│   │   │   ├── stage0_perception.py    # SAR GeoTIFF/PNG → U-Net/threshold segmentation → slick polygon
+│   │   │   ├── stage1_backward_drift.py# Reverse advection hindcast → origin spatiotemporal envelope
+│   │   │   ├── stage2b_dark_ship.py    # Tier 2 prototype: point-target detection
+│   │   │   ├── stage5_forward_drift.py # Forward advection simulation for shortlisted vessels
+│   │   │   ├── stage5b_oil_type.py     # Tier 2 prototype: spectral oil-type classifier
+│   │   │   └── stage6_matching.py      # IoU, centroid distance, orientation similarity → MatchScore
 │   │   ├── models/
-│   │   │   ├── unet.py                 # segmentation model def + weights loader
-│   │   │   └── anomaly_weights.py      # hand-tuned weight constants, documented
+│   │   │   ├── unet.py                 # PyTorch U-Net architecture definition
+│   │   │   ├── unet_weights.pt         # Pretrained model weights
+│   │   │   └── anomaly_weights.py      # Multi-factor anomaly scoring (blackout, speed, route DTW, draft)
 │   │   ├── schemas/
-│   │   │   ├── slick_polygon.py        # pydantic model mirroring slick_polygon.json
-│   │   │   ├── shortlist.py            # pydantic model mirroring shortlist.json
-│   │   │   ├── ranked_suspects.py      # pydantic model mirroring ranked_suspects.json
-│   │   │   └── pipeline_status.py      # pydantic model mirroring pipeline_status.json
-│   │   ├── services/
-│   │   │   ├── ais_loader.py           # MarineCadastre / synthetic AIS ingestion
-│   │   │   ├── drift_engine.py         # thin wrapper around OpenDrift/OilDrift config
-│   │   │   └── run_store.py            # filesystem/DB persistence keyed by run_id
-│   │   └── config.py                   # paths, thresholds (72h age, 1.5-10 m/s wind window, top-N)
+│   │   │   ├── pipeline_status.py      # 7-stage status schema (StageName, STAGE_NAMES, PipelineStatus)
+│   │   │   ├── slick_polygon.py        # SlickPolygon schema
+│   │   │   ├── shortlist.py            # Shortlist, Candidate, PositionAtEvent schemas
+│   │   │   └── ranked_suspects.py      # RankedSuspects, RankedVessel schemas
+│   │   └── services/
+│   │       ├── ais_loader.py           # AIS CSV ingestion, bounding box filter, corridor/vessel filtering
+│   │       ├── drift_engine.py         # OpenDrift wrapper with memory-aware NumPy advection fallback
+│   │       └── run_store.py            # Filesystem persistence keyed by run_id
 │   ├── data/
-│   │   ├── uploads/{run_id}/           # raw uploaded datasets
-│   │   ├── cache/prototype/            # pre-computed Tier 2 demo outputs
-│   │   └── runs/{run_id}/              # per-stage output JSON, matches the 4 contracts
+│   │   ├── synthetic/                  # Pre-packaged benchmark fixtures (SAR, AIS, wind, current, scenario.json)
+│   │   ├── uploads/{run_id}/           # Raw uploaded datasets per run
+│   │   └── runs/{run_id}/              # Generated artifacts per stage (slick_polygon, shortlist, etc.)
 │   ├── tests/
-│   │   ├── test_stage0_perception.py
-│   │   ├── test_stage4_anomaly.py
-│   │   ├── test_stage6_matching.py
-│   │   └── fixtures/                   # small sample SAR crop, sample AIS csv
-│   ├── requirements.txt
-│   └── pyproject.toml
+│   │   ├── test_api.py                 # API endpoint tests
+│   │   ├── test_drift_engine.py        # Advection engine tests
+│   │   ├── test_orchestrator.py        # End-to-end pipeline execution tests
+│   │   ├── test_stage0_perception.py   # Segmentation tests
+│   │   ├── test_stage4_anomaly.py      # Anomaly scoring tests
+│   │   └── test_stage6_matching.py     # Footprint verification tests
+│   └── requirements.txt                # Pinned backend dependencies
 │
 ├── frontend/
-│   ├── src/
-│   │   ├── main.tsx
-│   │   ├── App.tsx                     # layout shell: sidebar + map + bottom panel + right tools
-│   │   ├── api/
-│   │   │   └── client.ts               # typed fetch wrappers for every backend endpoint
-│   │   ├── state/
-│   │   │   ├── pipelineStore.ts        # run_id, stage statuses, polling logic (zustand)
-│   │   │   └── uiStore.ts              # active tab, layer toggles, split-view, sidebar collapsed
-│   │   ├── components/
-│   │   │   ├── sidebar/
-│   │   │   │   ├── Sidebar.tsx
-│   │   │   │   ├── TabResults.tsx      # Tab 1
-│   │   │   │   ├── TabInput.tsx        # Tab 2
-│   │   │   │   ├── TabPipeline.tsx     # Tab 3
-│   │   │   │   └── TabShortlist.tsx    # Tab 4
-│   │   │   ├── map/
-│   │   │   │   ├── MapCanvas.tsx       # Leaflet instance + layer composition
-│   │   │   │   ├── layers/
-│   │   │   │   │   ├── SlickLayer.tsx
-│   │   │   │   │   ├── AISTrackLayer.tsx
-│   │   │   │   │   ├── ReleasePointLayer.tsx
-│   │   │   │   │   └── SimulatedDriftLayer.tsx
-│   │   │   │   └── CompareView.tsx     # split/overlay-slider observed vs. simulated
-│   │   │   ├── bottompanel/
-│   │   │   │   ├── StatsStrip.tsx
-│   │   │   │   └── TimelineScrubber.tsx
-│   │   │   └── righttools/
-│   │   │       └── FloatingToolStack.tsx  # zoom, reset, maximize, annotate, screenshot
-│   │   ├── types/
-│   │   │   └── contracts.ts            # TS interfaces mirroring the 4 JSON contracts
-│   │   └── styles/                     # see design.md for tokens
-│   ├── index.html
+│   ├── vercel.json                     # Vercel SPA routing and proxy config for decoupled deployment
 │   ├── package.json
-│   ├── tailwind.config.ts
-│   └── vite.config.ts
+│   ├── vite.config.ts
+│   ├── src/
+│   │   ├── main.tsx                    # React DOM root
+│   │   ├── App.tsx                     # Main layout shell, connection health banner, tab viewports
+│   │   ├── api/
+│   │   │   └── client.ts               # Typed fetch client for all backend endpoints
+│   │   ├── state/
+│   │   │   ├── pipelineStore.ts        # Zustand store: uploads, continuous polling, tab switching, recovery
+│   │   │   └── uiStore.ts              # Zustand store: active tab, layer toggles, split view, collapse
+│   │   ├── types/
+│   │   │   └── contracts.ts            # TypeScript interfaces matching backend Pydantic schemas
+│   │   └── components/
+│   │       ├── sidebar/
+│   │       │   └── Sidebar.tsx         # Collapsible icon-rail navigation (Verdict, Datasets, Pipeline, Shortlist)
+│   │       ├── layout/
+│   │       │   ├── TopBar.tsx          # Status indicators, case metadata, quick actions
+│   │       │   └── BottomPanel.tsx     # Live pipeline metrics, suspect counter, simulate trigger button
+│   │       ├── tabs/
+│   │       │   ├── InputTab.tsx        # Upload cards + "⚡ Load Demo Scenario" benchmark button
+│   │       │   ├── PipelineTab.tsx     # 7-stage vertical stepper, progress %, failure error alerts
+│   │       │   ├── SuspectsTab.tsx     # Pre-simulation shortlist cards with AnomalyScore breakdown
+│   │       │   └── OutputTab.tsx       # Post-simulation ranked suspects, MatchScore badges, export
+│   │       └── map/
+│   │           ├── MapCanvas.tsx       # Leaflet map container with auto-fit bounds
+│   │           └── layers/
+│   │               ├── SlickLayer.tsx          # Observed slick polygon layer
+│   │               ├── OriginEnvelopeLayer.tsx # Reverse drift origin envelope layer
+│   │               ├── AISTrackLayer.tsx       # AIS vessel trajectory tracks
+│   │               ├── ReleasePointLayer.tsx   # Candidate release points
+│   │               ├── SimulatedDriftLayer.tsx # Forward simulated drift footprints
+│   │               └── DarkShipLayer.tsx       # Tier 2 dark-ship detection overlay
 │
-├── docs/
-│   ├── prd.md
-│   ├── architecture.md
-│   ├── rules.md
-│   ├── phases.md
-│   └── design.md
-│
-└── README.md
+└── docs/
+    ├── architecture.md
+    ├── design.md
+    ├── phases.md
+    ├── prd.md
+    └── rules.md
 ```
 
 ---
 
-## 4. Tech Stack (full)
+## 4. Tech Stack (Full)
 
-| Layer | Tool / Library | Notes |
+| Layer | Technology | Purpose & Notes |
 |---|---|---|
-| SAR/EO imagery | Sentinel-1 (SAR), Sentinel-2 (EO) via Copernicus Open Access Hub / Google Earth Engine | Free, primary data source |
-| Slick segmentation | U-Net (PyTorch) | Train on Zenodo Sentinel-1 SAR Oil Spill Dataset |
-| Dark-ship detector (prototype) | CFAR (classical) or lightweight CNN | Run once, cache result for demo |
-| AIS data | MarineCadastre (accessais) real archives, or synthetic generator | Prefer real data; pick demo region for coverage |
-| Ocean currents | Copernicus Marine Service (CMEMS) or HYCOM reanalysis | Feeds Stage 1 and Stage 5 |
-| Wind data | ECMWF ERA5 reanalysis | Same |
-| Wave/Stokes drift | ERA5 wave fields | Optional refinement |
-| Drift/transport simulation | OpenDrift (OilDrift/OpenOil module) | Reversed for Stage 1, forward for Stage 5 |
-| Oil-type classifier (prototype) | sklearn or small CNN on Sentinel-2 bands | Run once, cache result for demo |
-| Backend framework | FastAPI (Python 3.11+) | Async endpoints, background tasks for long stages |
-| Geo/data processing | pandas, geopandas, shapely | Polygon ops, AIS track handling |
-| Anomaly scoring | Hand-weighted rule-based sum (Python) | Documented as stand-in for future logistic regression/GBM |
-| Frontend framework | React 18 + Vite + TypeScript | |
-| Styling | Tailwind CSS | Tokens defined in `design.md` |
-| Map | Leaflet + react-leaflet | No API key dependency for the demo |
-| State management | Zustand | Lightweight, no boilerplate for a single-case app |
-| Charts (mini stat rows) | Recharts | Sub-score bars, confidence badges |
-| Dev/hosting | Local or lightweight cloud (Render/Vercel) | No production infra needed for a hackathon demo |
+| SAR/EO Imagery | Sentinel-1 (SAR) GeoTIFF/PNG | Primary input for slick detection |
+| Segmentation Engine | PyTorch U-Net + PIL / Rasterio | Deep learning mask extraction with threshold-based fallback |
+| Reverse Drift (Hindcast) | OpenDrift (`OpenOil`) / NumPy Engine | Reverse advection to compute probable origin envelope |
+| AIS Processing | Pandas, GeoPandas, Shapely | Spatiotemporal corridor filtering and track extraction |
+| Anomaly Scoring | Custom multi-factor rule model | Computes `AnomalyScore [0,1]` (blackout, speed, route, draft) |
+| Forward Drift (Forecast) | OpenDrift (`OpenOil`) / NumPy Engine | Forward advection of candidate release points to observation time |
+| Spatial Verification | Shapely, SciPy (ConvexHull) | IoU, centroid distance, orientation match → `MatchScore` |
+| Dark-Ship Detection (Tier 2) | CFAR / point detector (cached) | Pre-computed benchmark demonstration |
+| Oil Fingerprinting (Tier 2) | Spectral classifier (cached) | Pre-computed benchmark demonstration |
+| Backend Framework | FastAPI (Python 3.11+) | Async REST API, synchronous BackgroundTasks, OpenAPI |
+| Frontend Framework | React 18 + Vite + TypeScript | High-performance SPA with strict typing |
+| Mapping Engine | Leaflet + react-leaflet | Vector polygons, polylines, circle markers, bounding box fitting |
+| State Management | Zustand | Dual stores: `pipelineStore.ts` (data/polling) & `uiStore.ts` (UI) |
+| Styling & Theme | Vanilla CSS + Tailwind Tokens | Custom dark-ocean HUD styling (`st-*` component classes) |
+| Production Container | Multi-stage Dockerfile | `node:20-slim` builds frontend; Python 3.11 serves SPA & API |
+| Cloud Hosting Options | Hugging Face Spaces (16GB RAM), Render (512MB RAM), Vercel | Zero-cost deployment pathways documented in `DEPLOYMENT_GUIDE.md` |
 
 ---
 
-## 5. API Surface (contract between frontend and backend)
+## 5. API Surface
 
-| Method | Path | Purpose |
+| Method | Path | Description / Query Parameters |
 |---|---|---|
-| `POST` | `/api/datasets/{type}` | Upload one of `wind` \| `current` \| `sar` \| `ais`; returns status + inferred bbox/date range |
-| `POST` | `/api/pipeline/run` | Kick off Stages 0–4 (requires all 4 datasets); returns `run_id` |
-| `GET` | `/api/pipeline/status?run_id=` | Returns `pipeline_status.json` shape; poll target |
-| `GET` | `/api/pipeline/slick?run_id=` | Returns `slick_polygon.json` once Stage 0 done |
-| `GET` | `/api/pipeline/shortlist?run_id=` | Returns `shortlist.json` once Stage 4 done |
-| `POST` | `/api/pipeline/simulate` | Kick off Stages 5–6 for an existing `run_id` |
-| `GET` | `/api/results/{run_id}` | Returns `ranked_suspects.json` once Stage 6 done |
-| `GET` | `/api/results/{run_id}/export` | GeoJSON/CSV download bundle |
-| `GET` | `/api/prototype/dark-ship` | Cached Tier 2 response, no `run_id` needed |
-| `GET` | `/api/prototype/oil-type` | Cached Tier 2 response, no `run_id` needed |
+| `GET` | `/api/health` | Service health check; returns `{"status": "ok"}` |
+| `POST` | `/api/datasets/{type}` | Upload `wind`, `current`, `sar`, or `ais`. Returns status, bbox, date_range |
+| `POST` | `/api/datasets/load-demo` | Loads all 4 pre-packaged synthetic benchmark datasets into a new `run_id` |
+| `POST` | `/api/pipeline/run` | Body: `{"run_id": "..."}`. Executes Stages 0–4 asynchronously |
+| `GET` | `/api/pipeline/status?run_id=` | Returns 7-stage execution status (`PipelineStatus` schema) |
+| `GET` | `/api/pipeline/slick?run_id=` | Returns detected slick polygon GeoJSON/JSON (`SlickPolygon` schema) |
+| `GET` | `/api/pipeline/origin-envelope?run_id=` | Returns Stage 1 reverse drift envelope polygon and time window |
+| `GET` | `/api/pipeline/shortlist?run_id=` | Returns Stage 4 shortlist candidates (`Shortlist` schema) |
+| `POST` | `/api/pipeline/simulate` | Body: `{"run_id": "..."}`. Executes Stages 5–6 asynchronously |
+| `GET` | `/api/pipeline/simulated-footprints?run_id=` | Returns forward simulated polygons for shortlisted candidates |
+| `GET` | `/api/results/{run_id}` | Returns final suspect ranking (`RankedSuspects` schema) |
+| `GET` | `/api/results/{run_id}/export` | Downloads `.zip` archive containing GeoJSON slick and all stage JSONs |
+| `GET` | `/api/prototype/dark-ship` | Returns cached Tier 2 dark-ship detection response |
+| `GET` | `/api/prototype/oil-type` | Returns cached Tier 2 spectral oil-type fingerprint response |
 
 ---
 
-## 6. Data Contracts (full — source of truth for both sides)
+## 6. Data Contracts (Source of Truth)
 
+These schemas match between `backend/app/schemas/*.py` and `frontend/src/types/contracts.ts`:
+
+### 6.1 `pipeline_status.json` (7 Stages)
 ```json
-// slick_polygon.json
+{
+  "run_id": "string",
+  "stages": [
+    {"name": "perception", "status": "pending|running|done|failed", "progress_pct": 0, "detail": "string"},
+    {"name": "backward_drift", "status": "pending|running|done|failed", "progress_pct": 0, "detail": "string"},
+    {"name": "ais_ingestion", "status": "pending|running|done|failed", "progress_pct": 0, "detail": "string"},
+    {"name": "candidate_filtering", "status": "pending|running|done|failed", "progress_pct": 0, "detail": "string"},
+    {"name": "anomaly_scoring", "status": "pending|running|done|failed", "progress_pct": 0, "detail": "string"},
+    {"name": "drift_simulation", "status": "pending|running|done|failed", "progress_pct": 0, "detail": "string"},
+    {"name": "verification_matching", "status": "pending|running|done|failed", "progress_pct": 0, "detail": "string"}
+  ]
+}
+```
+
+### 6.2 `slick_polygon.json`
+```json
 {
   "polygon": [[lat, lon], ...],
-  "detection_time": "ISO8601",
+  "detection_time": "2024-09-14T18:00:00Z",
   "bbox": [minLat, minLon, maxLat, maxLon],
-  "area_km2": 0.0,
-  "elongation_ratio": 0.0,
-  "age_estimate_hours": 0.0
+  "area_km2": 4.12,
+  "elongation_ratio": 2.45,
+  "age_estimate_hours": 12.0,
+  "weathering_validity": true,
+  "fallback_used": false
 }
+```
 
-// shortlist.json
+### 6.3 `shortlist.json`
+```json
 {
   "candidates": [
     {
-      "mmsi": "string",
-      "vessel_name": "string",
-      "vessel_type": "tanker|cargo|bunkering",
-      "operator": "string",
-      "flag": "string",
-      "destination": "string",
-      "position_at_event": {"lat":0,"lon":0,"time":"ISO8601"},
-      "anomaly_score": 0.0,
-      "anomaly_breakdown": {"blackout":0,"speed":0,"route":0,"draft":0},
-      "candidate_release_points": [{"lat":0,"lon":0,"time":"ISO8601"}]
+      "mmsi": "367123450",
+      "vessel_name": "PACIFIC TITAN",
+      "vessel_type": "tanker",
+      "operator": "Pacific Maritime",
+      "flag": "US",
+      "destination": "LOS ANGELES",
+      "position_at_event": {"lat": 33.72, "lon": -118.25, "time": "2024-09-14T10:30:00Z"},
+      "anomaly_score": 0.82,
+      "anomaly_breakdown": {"blackout": 0.40, "speed": 0.22, "route": 0.15, "draft": 0.05},
+      "candidate_release_points": [{"lat": 33.72, "lon": -118.25, "time": "2024-09-14T10:30:00Z"}]
     }
   ]
 }
+```
 
-// ranked_suspects.json
+### 6.4 `ranked_suspects.json`
+```json
 {
   "ranking": [
     {
-      "mmsi": "string",
-      "vessel_name": "string",
-      "match_score": 0.0,
-      "iou": 0.0,
-      "centroid_distance_km": 0.0,
-      "orientation_match": 0.0,
+      "mmsi": "367123450",
+      "vessel_name": "PACIFIC TITAN",
+      "match_score": 0.88,
+      "iou": 0.74,
+      "centroid_distance_km": 0.42,
+      "orientation_match": 0.91,
       "rank": 1
     }
   ]
 }
-
-// pipeline_status.json
-{
-  "stages": [
-    {"name": "perception", "status": "pending|running|done|failed", "progress_pct": 0, "detail": "string"},
-    {"name": "ais_ingestion", "status": "pending", "progress_pct": 0, "detail": "string"},
-    {"name": "candidate_filtering", "status": "pending", "progress_pct": 0, "detail": "string"},
-    {"name": "anomaly_scoring", "status": "pending", "progress_pct": 0, "detail": "string"},
-    {"name": "drift_simulation", "status": "pending", "progress_pct": 0, "detail": "string"},
-    {"name": "verification_matching", "status": "pending", "progress_pct": 0, "detail": "string"}
-  ]
-}
 ```
-
-These four shapes are the seam between frontend and backend — `backend/app/schemas/` and `frontend/src/types/contracts.ts` must stay in lockstep. Any pipeline change that alters an output shape updates both.
 
 ---
 
-*Next file: `rules.md` — what to use, what to avoid, error handling, boundaries for the AI agent building this.*
+*Any change to these contracts must be applied to both backend schemas and frontend types simultaneously.*
+

@@ -87,110 +87,121 @@ Font family: system UI stack (`-apple-system, "Segoe UI", Roboto, sans-serif`) �
 
 ### 4.1 Header
 - Hamburger (≡) top-left. Click → collapses to the 56px icon rail (hamburger + 4 tab icons only, no labels/content). Click again → restores to 340px with the previously active tab's panel content intact.
-- "SlickTrace" wordmark + a simple droplet/radar glyph, replacing the reference screenshot's product branding.
-- Optional top-right icons (save/share) may be present but are non-functional placeholders for this build — not a PRD feature, don't wire them to anything real.
+- "SlickTrace" wordmark + a simple droplet/radar glyph, with a subtle "Beta" pill tag.
+- System operational dot indicator pinned in the sidebar footer (`st-rail-foot`).
 
-### 4.2 Tab Icon Rail (top to bottom)
-1. **Results** (target icon or ranked-list glyph)
-2. **Input** (upload/tray glyph)
-3. **Pipeline** (stepper/gear glyph)
-4. **Shortlist** (list/flag glyph)
+### 4.2 Tab Icon Rail (Top to Bottom)
+1. **Verdict** (ID: `output`, glyph: target/radar) — Attribution map & report, ranked suspects, `MatchScore` badge, carried-over `AnomalyScore` breakdown, split comparison, export bundle.
+2. **Datasets** (ID: `input`, glyph: upload/tray) — 4 dataset cards (Wind, Current, SAR Image, AIS) + ⚡ **Load Demo Scenario** button + "Run Pipeline" trigger.
+3. **Pipeline** (ID: `pipeline`, glyph: stepper/gear) — 7-stage vertical execution stepper with live progress %, descriptions, and failed-stage alert banner (`.st-stage.failed`).
+4. **Shortlist** (ID: `suspects`, glyph: list/flag) — Pre-simulation candidate vessels flagged by origin filter and anomaly scoring prior to forward drift simulation.
 
 Active tab: `--accent-teal` icon fill + a 2px left-edge indicator bar. Inactive: `--text-secondary`.
 
-### 4.3 Tab 1 — Results
+### 4.3 Tab 1 — Verdict (`output`)
 
 | Element | Spec |
 |---|---|
-| Simulate button | Full-width, top of panel. Enabled state: `--accent-teal` fill. Disabled state: `--bg-panel-raised` fill, `--text-disabled` label, **tooltip on hover/focus**: "Upload all 4 datasets and generate a shortlist first." (rules.md §2 — never a disabled button with no explanation) |
-| Running state | Spinner + one-line status text sourced live from `pipeline_status.json`'s current stage `detail`, e.g. "Running drift simulation for MMSI 241123000…" |
-| Result card (one per ranked vessel) | Rank badge (top-left corner) · vessel name + MMSI (`--text-display`) · **`MatchScore` badge**, colored per §2.1 scale, large and top-right of the card · sub-score row: IoU / centroid distance (km) / orientation match, small stat chips · **separate `AnomalyScore` row below a divider**, carried from Tab 4, with its own blackout/speed/route/draft breakdown · vessel type, flag, operator, small caption row · "View on map" toggle button |
-| Post-simulation actions | "View simulated map" (opens `CompareView`) and "Download" buttons, both full-width secondary style, below the result list |
-| Empty state (no sim run yet) | Icon + one sentence: "Run a simulation to see ranked suspects and match scores here." — never a blank panel |
+| Run Simulation button | Full-width, top of panel or in bottom panel. Enabled state: `--accent-teal` fill. Disabled state: `--bg-panel-raised` fill, `--text-disabled` label, with clear tooltip: "Run pipeline and generate a shortlist first." |
+| Running state | Spinner + one-line status text sourced live from `pipeline_status.json` current stage `detail` (e.g. "Starting forward drift simulation…"). |
+| Result card (one per ranked vessel) | Rank badge (top-left corner) · vessel name + MMSI (`--text-display`) · **`MatchScore` badge**, colored per §2.1 scale, large and top-right of the card · sub-score row: IoU / centroid distance (km) / orientation match, small stat chips · **separate `AnomalyScore` row below a divider**, carried from Tab 4, with its own blackout/speed/route/draft breakdown · vessel type, flag, operator, small caption row · "View on map" toggle button. |
+| Post-simulation actions | "View simulated map" (toggles `CompareView`) and "Export Package" (`GET /api/results/{run_id}/export`), downloading a `.zip` containing GeoJSON and JSON artifacts. |
+| Empty state (no sim run yet) | Radar icon + one sentence: "Run a simulation to see ranked suspects and match scores here." — never a blank panel. |
 
 **Non-negotiable layout rule (rules.md §3.3):** `MatchScore` and `AnomalyScore` are always two visually distinct rows/badges on the same card. No component may compute or display a merged single "confidence %."
 
-### 4.4 Tab 2 — Input
+### 4.4 Tab 2 — Datasets (`input`)
+
+Top action: **"⚡ Load Demo Scenario"** button. Single-click action that calls `POST /api/datasets/load-demo` to immediately populate all 4 dataset cards with the pre-packaged synthetic benchmark fixtures (SAR GeoTIFF, AIS tracks, Wind NetCDF, Current NetCDF).
 
 Four upload cards, identical structure, in this order: **Wind → Ocean Current → SAR Image → AIS**.
 
 | Card element | Spec |
 |---|---|
-| Title + one-line description | Per the wording already fixed in the source spec (e.g. "10m wind components (u/v), NetCDF or CSV. Used as forcing input for the drift simulation.") |
-| File-type hint | `--text-caption`, e.g. "NetCDF, CSV" |
-| Upload control | Drag-and-drop zone with fallback file picker |
-| Status indicator | Pill badge: "Not uploaded" (`--text-disabled`), "Uploaded ✓" (`--accent-green`), "Invalid ⚠" (`--accent-red`, with the specific rejection reason from the backend shown inline, per rules.md §2 — never a generic error) |
-| Provenance tag | Small pill: "Real" / "Synthetic" / "Illustrative" — `--text-caption` size, unobtrusive per PRD's honesty framing |
-| Inferred bbox/date range | Shown once uploaded, small caption under the status pill, so all 4 datasets' coverage can be sanity-checked against each other |
+| Title + one-line description | "10m Wind Fields (u/v)", "Surface Ocean Currents", "SAR Satellite Imagery", "AIS Vessel Tracks". |
+| File-type hint | `--text-caption`, e.g. "NetCDF, CSV" or "GeoTIFF, PNG". |
+| Upload control | Drag-and-drop zone with fallback native file picker. |
+| Status indicator | Pill badge: "Not uploaded" (`--text-disabled`), "Uploaded ✓" (`--accent-green`), "Invalid ⚠" (`--accent-red`, with the specific rejection reason shown inline). |
+| Provenance tag | Small pill: "Real" / "Synthetic" / "Illustrative" — `--text-caption` size, unobtrusive per PRD's honesty framing. |
+| Inferred bbox/date range | Shown once uploaded, small caption under the status pill, confirming dataset spatiotemporal coverage. |
 
-Bottom of panel: **"Run pipeline"** button, same enabled/disabled/tooltip pattern as §4.3's Simulate button, enabled only when all 4 cards show "Uploaded ✓".
+Bottom of panel: **"Run Pipeline"** button, enabled only when all 4 cards show "Uploaded ✓". When clicked, automatically transitions UI focus to Tab 3 (Pipeline).
 
-### 4.5 Tab 3 — Pipeline
+### 4.5 Tab 3 — Pipeline (`pipeline`)
 
-Vertical stepper, 6 stages in fixed order (Perception → AIS Ingestion → Candidate Filtering → Anomaly Scoring → Drift Simulation → Verification/Matching). Each stage row:
+Vertical stepper, **7 stages** in fixed order. Each stage row:
 
-| Element | Spec |
-|---|---|
-| Stage name + description | Description always visible, even pre-upload — this is how a judge reads the pipeline's structure before any data exists |
-| Status chip | Pending (`--text-disabled`) / Running (`--accent-cyan`, subtle pulse) / Done (`--accent-green`) / Failed (`--accent-red`) |
-| Progress | Numeric where available ("342 / 3045 AIS pings — 68%") or a plain progress bar; before any upload, this slot reads "Upload data first" instead of a number, description still shown |
-| Failed-stage detail | If `status: "failed"`, the row expands to show the `detail` string from `pipeline_status.json` verbatim — this is the UI's enforcement of rules.md §2's "halt downstream, never propagate garbage" rule made visible |
+| Stage Name | Pipeline Role | Default Description |
+|---|---|---|
+| 0. Perception | `perception` | U-Net deep segmentation on SAR imagery to extract slick geometry and age. |
+| 1. Backward Drift | `backward_drift` | Reverse advection using ocean currents & winds to calculate probable origin envelope. |
+| 2. AIS Ingestion | `ais_ingestion` | Ingestion of maritime AIS vessel traffic within the origin spatiotemporal envelope. |
+| 3. Candidate Filtering | `candidate_filtering` | Corridor, vessel-type, draft, and physical discharge plausibility filtering. |
+| 4. Anomaly Scoring | `anomaly_scoring` | Multi-factor anomaly scoring (AIS blackout, speed anomalies, route deviation, draft). |
+| 5. Drift Simulation | `drift_simulation` | Forward trajectory advection of shortlisted vessels to satellite detection timestamp. |
+| 6. Verification / Matching | `verification_matching` | Spatial overlap, centroid proximity, and elongation alignment scoring. |
 
-Stages 5–6 stay visually "Pending" until Tab 1's Simulate is pressed, even if stages 1–4 are long done — this is intentional, not a bug, and should read that way (e.g. no spinner on 5–6 while waiting).
+Row elements:
+- **Status chip**: Pending (`--text-disabled`) / Running (`--accent-cyan`, subtle pulse) / Done (`--accent-green`) / Failed (`--accent-red`).
+- **Progress**: Percentage numeric progress or stage detail string.
+- **Failed-stage detail**: If `status: "failed"`, the row expands into a prominent alert card (`.st-stage.failed`) with an exclamation glyph and the exact backend error `detail` string verbatim, enforcing rules.md §2's halt-downstream policy.
 
-### 4.6 Tab 4 — Shortlist
+Stages 5–6 stay visually "Pending" until the user triggers "Run Simulation", accurately reflecting the two-phase pipeline execution model.
 
-Read-only vessel cards (no action buttons other than "View on map"), each showing: name + MMSI, vessel type, flag, operator, position-at-event (lat/lon + time relative to slick detection), destination, `AnomalyScore` + blackout/speed/route/draft breakdown, candidate release point(s). A fixed caption pinned at the top of the panel: *"These are AIS-flagged candidates prior to drift simulation. See Results for final confidence-scored rankings."* — this line is not optional copy; it's what stops Tab 4 and Tab 1 from being visually confusable (rules.md §3.3 spirit extended to the pre/post-sim distinction).
+### 4.6 Tab 4 — Shortlist (`suspects`)
+
+Read-only vessel cards showing: name + MMSI, vessel type, flag, operator, position-at-event (lat/lon + time relative to slick detection), destination, `AnomalyScore` + blackout/speed/route/draft breakdown, candidate release point(s). A fixed caption pinned at the top: *"These are AIS-flagged candidates prior to drift simulation. See Verdict for final confidence-scored rankings."*
 
 ---
 
 ## 5. Map Canvas
 
-### 5.1 Layers (toggleable, listed in typical z-order bottom→top)
-1. Basemap (`--bg-ocean` water, `--land` landmasses)
-2. AIS vessel tracks — color-coded along the `--accent-red`→`--accent-amber`→`--accent-green` scale by `anomaly_score` (inverted from the badge scale: high anomaly = red, matching "this vessel is more suspicious")
-3. Observed slick polygon — solid `--accent-teal` outline + low-opacity fill
-4. Candidate release point markers — small `--accent-cyan` pins
-5. Simulated drift footprint (post-simulation only) — `--accent-cyan` outline + low-opacity fill, deliberately a different color from the observed slick's teal so the two are visually distinguishable in compare mode
+### 5.1 Layers (Toggleable, listed in z-order bottom→top)
+1. **Basemap**: Leaflet dark-ocean tile layer (`--bg-ocean` water, `--land` landmasses).
+2. **AIS Vessel Tracks (`AISTrackLayer`)**: Polylines color-coded along the `--accent-green`→`--accent-amber`→`--accent-red` gradient by `anomaly_score` (higher anomaly = red).
+3. **Observed Slick Polygon (`SlickLayer`)**: Solid `--accent-teal` outline + semi-transparent teal fill.
+4. **Origin Envelope (`OriginEnvelopeLayer`)**: Dashed `--accent-amber` polygon showing the probable hindcast release area.
+5. **Candidate Release Points (`ReleasePointLayer`)**: `--accent-cyan` circular markers representing vessel positions during the origin window.
+6. **Simulated Drift Footprints (`SimulatedDriftLayer`)**: `--accent-cyan` polygon outlines representing forward advection results for shortlisted vessels.
+7. **Dark-Ship Targets (`DarkShipLayer`)**: Tier 2 prototype radar targets detected in SAR imagery without active AIS.
 
 ### 5.2 Compare Mode
-Triggered from Tab 1's "View simulated map." Two implementations are acceptable per `architecture.md`; pick one and keep it consistent:
-- **Split**: two synced Leaflet panes side by side, left = observed, right = simulated, shared pan/zoom.
-- **Overlay + slider**: single map, both layers stacked, a horizontal swipe slider reveals one vs. the other.
+Triggered from Tab 1's "View simulated map" button or the bottom action bar. When active, enables a split view (`st-view.split`) presenting the observed slick polygon side-by-side with the forward-simulated suspect footprint for direct geometric verification.
 
-Either way: clicking a vessel track or marker anywhere on the map highlights the corresponding row in whichever left-sidebar tab is currently open (Tab 1 or Tab 4) — this is the one piece of cross-component interactivity the map owns.
+Clicking any vessel track or candidate release point on the map automatically highlights the corresponding card in the active sidebar tab (Tab 1 or Tab 4).
 
 ---
 
 ## 6. Right-Edge Floating Tools
 
-Six circular `--bg-panel-raised` buttons, single glyph each, `--text-primary` icon color, `--accent-teal` on hover: **Zoom in · Zoom out · Reset/home view · Maximize (hide sidebar+bottom panel) · Annotate (freehand/pin) · Screenshot/export**. Fixed position regardless of sidebar collapse state or active tab.
+Six circular `--bg-panel-raised` buttons, single glyph each, `--text-primary` icon color, `--accent-teal` on hover: **Zoom in · Zoom out · Reset/home view · Maximize (hide sidebar + bottom panel) · Annotate (freehand/pin) · Screenshot/export**. Pinned at a fixed screen position.
 
 ---
 
-## 7. State Handling (visual rules, enforcing rules.md §2)
+## 7. State Handling & Error Boundaries
 
-### 7.1 Empty states
-Every panel and every map layer slot has a defined empty state — an icon + one sentence describing what will appear there and what triggers it. No component ships without one; this is checked per-component during Phase 6 polish (`phases.md`).
+### 7.1 Empty States
+Every panel and map layer has an explanatory empty state with an icon and concise instruction (e.g. "Upload all 4 datasets or click ⚡ Load Demo Scenario to begin"). No panel ever renders blank.
 
-### 7.2 Error states
-- Failed API call → inline error banner within the specific panel/tab affected, `--accent-red` left border, retry action where applicable. Never a blank panel, never only a browser console error.
-- Repeated polling failure → a persistent top-of-map banner: "Connection lost, retrying…" (`--accent-amber` background), auto-dismisses on recovery.
+### 7.2 Connection & Error States
+- **Persistent Connection Banner**: If `/api/health` fails or polling network errors exceed threshold, a fixed top banner renders: `"Connection lost, retrying…"` (`--accent-red` / rust background), auto-dismissing upon recovery.
+- **Stale Run / 404 Recovery**: If a container restarts or an active `run_id` is lost, the polling loop catches the 404, resets `runId`, switches to the Datasets tab, and displays: *"Active run has expired or server restarted. Please click '⚡ Load Demo Scenario' or re-upload datasets to proceed."*
+- **Stage Failure**: Displayed inside the stage row itself with red styling and the exact backend exception message.
 
-### 7.3 Disabled controls
-Any disabled button (Simulate, Run pipeline, or otherwise) is always paired with a tooltip stating the specific unmet precondition — never a bare greyed-out control. This is a hard rule carried directly from `rules.md` §2, not a style preference.
+### 7.3 Disabled Controls
+Any disabled button (e.g. "Run Pipeline" before 4 datasets are ready, "Run Simulation" before shortlist generation) includes an explanatory hover tooltip stating the unmet precondition.
 
-### 7.4 Loading states
-Spinners/progress bars always carry a text label describing what's happening (sourced from the real `detail` field where one exists), never a bare spinner with no context.
+### 7.4 Loading States
+Spinners are always paired with live status text from `pipeline_status.json` (e.g. "Seeding particles…", "Running reversed advection…", "Scoring candidates…").
 
 ---
 
 ## 8. Explicit Non-Goals for This Design Pass
 
-- No dark/light theme toggle — one dark theme only, matches the operational tone and halves QA surface.
-- No mobile/responsive layout — this is a demo-day desktop dashboard (PRD §5 non-goals; no production infra implies no responsive requirement either).
-- No custom icon set commissioned — use an existing icon library (e.g. Lucide/Heroicons) consistent with the token colors above; icon choice is implementer's latitude per the original build spec.
+- No dark/light theme toggle — single dark-ocean operational theme only.
+- No mobile/responsive layout — desktop investigative dashboard for demo presentation.
+- No custom iconography library — standard Lucide/SVG glyphs adhering to token colors.
 
 ---
 
-*This is the last of the five planning documents (`prd.md` → `architecture.md` → `rules.md` → `phases.md` → `design.md`). Together they're the full spec an AI coding agent (Antigravity) or a human team can build SlickTrace from without further clarification.*
+*Together with `architecture.md`, `rules.md`, `phases.md`, and `prd.md`, this design spec defines the complete visual and behavioral system of SlickTrace.*
