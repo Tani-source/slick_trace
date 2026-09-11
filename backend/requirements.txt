@@ -16,3 +16,4 @@ rasterio
 xarray
 netCDF4
 pytest
+segmentation-models-pytorch

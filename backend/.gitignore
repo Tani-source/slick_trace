@@ -6,6 +6,10 @@ data/uploads/
 data/runs/
 data/cache/
 *.pt
+!app/models/unet_weights.pt
 *.tif
 *.nc
+data/real/
+data/downloads/
+downloads/
 

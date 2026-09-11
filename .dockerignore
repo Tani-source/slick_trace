@@ -11,3 +11,6 @@ backend/.venv
 frontend/node_modules
 frontend/dist
 .DS_Store
+backend/data/real
+backend/data/downloads
+downloads
