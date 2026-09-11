@@ -117,12 +117,14 @@ read_run_artifact = load_stage_output
 upload_path = uploaded_file
 
 
-def update_stage(run_id: str, stage_name: str, status: str, progress: int = 0, message: str = "") -> None:
+def update_stage(run_id: str, stage_name: str, status: str, progress: int = 0, message: str = "", **extra) -> None:
     current = load_pipeline_status(run_id) or {"run_id": run_id, "stages": {}}
     stages = current.setdefault("stages", {})
-    stages[stage_name] = {
+    stage_data = {
         "status": status,
         "progress": progress,
         "message": message,
     }
+    stage_data.update(extra)
+    stages[stage_name] = stage_data
     save_pipeline_status(run_id, current)

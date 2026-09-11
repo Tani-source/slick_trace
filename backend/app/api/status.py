@@ -28,14 +28,17 @@ async def pipeline_status(run_id: str) -> dict:
         stages_list = []
         for name in STAGE_NAMES:
             entry = raw_stages.get(name, {})
-            stages_list.append({
+            stage_entry = {
                 "name": name,
                 "status": entry.get("status", "pending"),
                 # on-disk key is 'progress'; schema key is 'progress_pct'
                 "progress_pct": entry.get("progress_pct", entry.get("progress", 0)),
                 # on-disk key is 'message'; schema key is 'detail'
                 "detail": entry.get("detail", entry.get("message", "")),
-            })
+            }
+            if "method" in entry:
+                stage_entry["method"] = entry["method"]
+            stages_list.append(stage_entry)
         return {"run_id": stored.get("run_id", run_id), "stages": stages_list}
 
     # Already list-shaped (e.g. written by a future migration) — return as-is

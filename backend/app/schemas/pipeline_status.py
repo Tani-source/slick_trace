@@ -31,6 +31,7 @@ class StageStatus(BaseModel):
     status: StageStatusValue = "pending"
     progress_pct: int = Field(0, ge=0, le=100)
     detail: str = ""
+    method: str | None = None
 
 
 class PipelineStatus(BaseModel):

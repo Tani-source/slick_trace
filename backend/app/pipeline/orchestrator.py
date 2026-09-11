@@ -87,8 +87,9 @@ def run_stages_0_to_4(run_id: str) -> None:
             _fail(run_id, "perception", result["reason"])
             return
 
+        method = result.get("method", "unet" if not result.get("data", {}).get("fallback_used") else "threshold")
         write_run_artifact(run_id, "slick_polygon", result["data"])
-        update_stage(run_id, "perception", "done", 100, f"Slick area: {result['data']['area_km2']:.2f} km²")
+        update_stage(run_id, "perception", "done", 100, f"Slick area: {result['data']['area_km2']:.2f} km² ({method})", method=method)
 
         # ── Stage 1: Backward Drift ──────────────────────────────────────────────
         current_stage = "backward_drift"
