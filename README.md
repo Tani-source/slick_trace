@@ -1,3 +1,12 @@
+---
+title: SlickTrace
+emoji: 🌊
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+---
+
 # SlickTrace 🌊
 
 **Oil Spill Source Attribution System**  
