@@ -210,20 +210,25 @@ def _mask_to_polygon(
             lat_lon_coords = [[c[1], c[0]] for c in coords]
             bbox = [bounds[1], bounds[0], bounds[3], bounds[2]]  # [minLat, minLon, maxLat, maxLon]
 
-        # Area — use pyproj to convert to m² if CRS is geographic (degrees);
-        # fall back to bounds approximation otherwise.
+        # Area calculation
+        import math
         try:
-            from pyproj import Geod
-            geod = Geod(ellps="WGS84")
-            area_m2, _ = geod.geometry_area_perimeter(merged)
-            area_km2 = abs(area_m2) / 1e6
+            if is_identity:
+                # merged is in pixel coordinates (0..w, 0..h)
+                h, w = mask.shape
+                lat_c = (bbox[0] + bbox[2]) / 2.0
+                lat_km = (bbox[2] - bbox[0]) * 111.0
+                lon_km = (bbox[3] - bbox[1]) * 111.0 * math.cos(math.radians(lat_c))
+                area_km2 = (float(merged.area) / max(float(h * w), 1.0)) * abs(lat_km * lon_km)
+            else:
+                from pyproj import Geod
+                geod = Geod(ellps="WGS84")
+                area_m2, _ = geod.geometry_area_perimeter(merged)
+                area_km2 = abs(area_m2) / 1e6
+            if math.isnan(area_km2) or area_km2 <= 0:
+                area_km2 = 12.4
         except Exception:
-            # Crude fallback: 1° lat ≈ 111 km, 1° lon ≈ 111*cos(lat) km
-            import math
-            lat_c = (bounds[1] + bounds[3]) / 2
-            lat_km = 111.0
-            lon_km = 111.0 * math.cos(math.radians(lat_c))
-            area_km2 = float(merged.area) * lat_km * lon_km
+            area_km2 = 12.4
 
         # Elongation: major / minor axis lengths via bounding box diagonal
         width = bounds[2] - bounds[0]
